@@ -46,6 +46,7 @@ template<> XReg read_memory<32>(XReg va, uint32_t encoding) { return cpu_ldl_le_
 
 str_memory_funcs_klee = """
 #include <unordered_map>
+#include <assert.h>
 
 static std::unordered_map<uint32_t, uint32_t> memory;
 
@@ -60,6 +61,19 @@ template<> XReg read_memory<16>(XReg va, uint32_t encoding) { return memory[va.v
 template<> XReg read_memory<32>(XReg va, uint32_t encoding) { return memory[va.value]; }
 
 void xqci_jump_pcrel(XReg pc, int imm) {}
+
+#define DEF_SEXTRACT(size)                                                                      \
+    static int ## size ## _t sextract ## size(uint ## size ## _t value, int start, int length)  \
+    {                                                                                           \
+        assert(start >= 0 && length > 0 && length <= size - start);                             \
+        return ((int ## size ## _t)(value << (size - length - start))) >> (size - length);      \
+    }
+
+DEF_SEXTRACT(8)
+DEF_SEXTRACT(16)
+DEF_SEXTRACT(32)
+DEF_SEXTRACT(64)
+
 """
 
 str_reg_structs = """
@@ -469,7 +483,6 @@ def should_translate(name):
 def round_to_power_of_two(x):
     return int(2**math.ceil(math.log2(x)))
 
-
 def ranges_in_location(loc_str):
     for r in loc_str.split('|'):
         if '-' in r:
@@ -477,6 +490,18 @@ def ranges_in_location(loc_str):
             yield (offsets[1], offsets[0] - offsets[1] + 1)
         else:
             yield (int(r), 1)
+
+def bit_to_c_size(x):
+    return min(max(round_to_power_of_two(x), 8), 64)
+
+def var_size_from_location(loc_str):
+    sum = 0
+    for _,length in ranges_in_location(loc_str):
+        sum += length
+    return sum
+
+def var_is_imm(op, name):
+    return f'X[{name}]' not in op
 
 def find_var_by_loc(y, loc):
     if 'variables' in y:
@@ -561,14 +586,22 @@ def main():
                         out.write(f'static bool trans_{op_name}(DisasContext *ctx, arg_{op_name} *arg)\n')
                         out.write('{\n')
 
-                        #out.write(f"printf(\"{op_name}\\n\");\n")
+                        str_args = []
+                        if 'variables' in y['encoding']:
+                            str_args = [f"arg->{v['name']}" for v in y['encoding']['variables']]
+                            for v in y['encoding']['variables']:
+                                if 'left_shift' in v:
+                                    out.write(f"    arg->{v['name']} <<= {v['left_shift']};\n")
+                                if 'not' in v:
+                                    not_values = v['not'] if isinstance(v['not'], list) else [v['not']]
+                                    conditions = [f"arg->{v['name']} == {n}" for n in not_values]
+                                    out.write(f"    if ({' || '.join(conditions)}) {{\n")
+                                    out.write( "        return false;\n")
+                                    out.write( "    }\n")
 
                         out.write(f'    emit_{op_name}(ctx, tcg_env')
-                        if 'variables' in y['encoding']:
+                        if len(str_args) > 0:
                             out.write(', ')
-                            str_args = [f"arg->{v['name']}" for v in y['encoding']['variables']]
-                            #for a in str_args:
-                            #    out.write(f'printf("{a}: %x\\n", {a});\n')
                             out.write(', '.join(str_args))
                         out.write(');\n')
 
@@ -659,13 +692,6 @@ def main():
                     instruction_sizes[size].remove(e)
                 instruction_sizes[size].append(o)
 
-            #for n in new_inst:
-            #    n0 = new_inst[n][0]
-            #    n1 = new_inst[n][1]
-            #    instruction_sizes[size].append([n0, n1])
-            #    instruction_sizes[size].remove(n0)
-            #    instruction_sizes[size].remove(n1)
-
         for size in instruction_sizes:
             for inst in instruction_sizes[size]:
                 y = None
@@ -730,158 +756,11 @@ def main():
         for size in instruction_sizes:
             combined_instructions = []
             for inst in instruction_sizes[size]:
-                y = None
-                inst_name = None
-
                 if isinstance(inst, set):
                     continue
-                    variables = [instructions[i]['variables'] if 'variables' in instructions[i] else [] for i in inst]
-                    num_variables = [len(v) for v in variables]
 
-                    field_use_count = {}
-                    for vs in variables:
-                        print(vs)
-                        for v in vs:
-                            if not v['location'] in field_use_count:
-                                field_use_count[v['location']] = 1
-                            else:
-                                field_use_count[v['location']] += 1
-                    sorted_field_use_count = {k: v for k, v in sorted(field_use_count.items(), key=lambda item: item[1], reverse=True)}
-                    print(sorted_field_use_count)
-
-                    # TODO:
-                    # - check all arguments have same qualifiers (sign_extend, shift_left, ...)
-                    # - check arguments are contiguous
-
-                    new_var_map = {}
-                    for vs in variables:
-                        for v in vs:
-                            if not v['location'] in new_var_map:
-                                new_var = deepcopy(v)
-                                if 'not' in new_var:
-                                    del new_var['not']
-                                new_var_map[v['location']] = new_var
-
-                    # TODO: not nice
-                    new_pattern = list(instructions[list(inst)[0]]['match'])
-                    for loc in new_var_map:
-                        for (start,length) in ranges_in_location(loc):
-                            for i in range(start, start+length):
-                                new_pattern[-i-1] = '-'
-                    print(''.join(new_pattern))
-
-                    print(new_var_map)
-
-                    count = {}
-                    vals = {}
-                    arr = {}
-                    loc_to_inst = {}
-                    unspec_values = {}
-                    for loc in new_var_map:
-                        var = new_var_map[loc]
-                        vals[loc] = set()
-                        count[loc] = {}
-                        loc_to_inst[loc] = set()
-                        unspec_values[loc] = set()
-                        for i in inst:
-                            if not i in arr:
-                                arr[i] = []
-
-                            pattern = instructions[i]['match']
-                            for (start,length) in ranges_in_location(loc):
-                                value_str = pattern[-start-length:-start]
-                                if '-' in value_str:
-                                    arr[i].append((loc, None))
-                                    unspec_values[loc].add(i)
-                                else:
-                                    arr[i].append((loc, value_str))
-                                    vals[loc].add(value_str)
-                                    if not value_str in count[loc]:
-                                        count[loc][value_str] = set()
-                                    count[loc][value_str].add(i);
-                                    loc_to_inst[loc].add(i)
-
-                    default_values = {}
-                    for loc,uset in unspec_values.items():
-                        if len(uset) != 1:
-                            continue
-                        u = list(uset)[0]
-                        variables = instructions[u]['variables'] if 'variables' in instructions[u] else []
-                        found_v = None
-                        for v in variables:
-                            if v['location'] == loc:
-                                found_v = v
-                                break
-                        assert(found_v != None)
-                        print(found_v)
-
-                        not_list = []
-                        if 'not' in found_v:
-                            if isinstance(found_v['not'], list):
-                                not_list = found_v['not']
-                            else:
-                                not_list = [found_v['not']]
-
-                        print(found_v)
-                        not_set = {int(s) for s in not_list}
-                        have_set = {int(s,2) for s in count[loc]}
-                        if not_set == have_set:
-                            default_values[loc] = u
-
-                    print(arr)
-                    print(vals)
-                    print(count)
-                    print(loc_to_inst)
-                    print(default_values)
-                    print("--------------------")
-
-                    values_to_del = []
-                    for i,loc0 in enumerate(count):
-
-                        for v in count[loc0]:
-                            if len(count[loc0][v]) > 1:
-                                for j,loc1 in enumerate(count):
-                                    if i == j:
-                                        continue
-
-                                    if count[loc0][v] <= loc_to_inst[loc1]:
-                                        count[loc0][v] = {loc1: count[loc1]}
-                                        values_to_del.append(loc1)
-                                        print(count[loc0][v])
-
-                    for v in values_to_del:
-                        del count[v]
-
-                    print(count)
-
-                    #for loc in field_use_count:
-                    #    if field_use_count[loc] == 1 and len(:
-
-                    #    if field_use_count[loc] > 1:
-                    #        overlapping_field = loc
-                    #    elif field_use_count[loc] != 1:
-                    #        print(f'Error: Overlapping instructions {inst} have multiple non-equal {field_use_loc}')
-                    #        skip = False
-                    #        break
-                    #if skip:
-                    #    continue
-
-                    #if abs(num_variables[0] - num_variables[1]) != 1:
-                    #    print(f'Error: Overlapping instructions {inst[0]}, {inst[1]} have multiple non-equal fields')
-                    #    print(f'       {instructions[inst[0]]}')
-                    #    print(f'       {instructions[inst[1]]}')
-                    #    continue
-
-                    combined_inst = {}
-                    combined_inst['match'] = ''.join(new_pattern)
-                    combined_inst['variables'] = [v[1] for v in new_var_map.items()]
-
-                    y = combined_inst
-                    inst_name = '_'.join(list(inst))
-                    combined_instructions.append((inst_name, inst, y, count, default_values))
-                else:
-                    y = instructions[inst]
-                    inst_name = inst
+                y = instructions[inst]
+                inst_name = inst
 
                 vars = []
                 pattern = y['match']
@@ -901,6 +780,18 @@ def main():
                         ranges = []
                         names = []
 
+                        # Sanity check
+                        for subfield in v:
+                            if subfield not in {
+                                    'name',
+                                    'not',
+                                    'location',
+                                    'sign_extend',
+                                    'left_shift' # left shift is handled in trans_*()
+                                }:
+                                print(f'Unhandled field in variable {subfield}')
+                                assert(False)
+
                         if 'not' in v:
                             nots = None
                             if isinstance(v['not'], list):
@@ -910,18 +801,16 @@ def main():
                             funcname = f"check_not_{'_'.join([str(i) for i in nots])}"
                             check_not_functions[funcname] = v['not']
 
-                        for r in v['location'].split('|'):
-                            if '-' in r:
-                                offsets = [int(s) for s in r.split('-')]
-                                start = offsets[1]
-                                length = offsets[0] - offsets[1] + 1
-                            else:
-                                offset = int(r)
-                                length = 1
-                                start = offset
+                        for i,r in enumerate(ranges_in_location(v['location'])):
+                            start,length = r
+
+                            sign_extend = ''
+                            if i == 0 and 'sign_extend' in v:
+                                assert(v['sign_extend'] == True)
+                                sign_extend = 's'
 
                             start += round_to_power_of_two(size) - size
-                            ranges.append(f'{start}:{length}')
+                            ranges.append(f'{start}:{sign_extend}{length}')
                             names.append(f'{start}_{length}')
 
                         name = f"{v['name']}_{'_'.join(names)}"
@@ -949,29 +838,6 @@ def main():
                             out.write(f)
                             out.write('\n')
 
-            if args.output_decode_extra_functions:
-                with open(f'{args.output_decode_extra_functions}-{size}.c.inc', 'w') as f:
-                    for inst_name, inst, y, count, defaults in combined_instructions:
-                        emit_type(f, y, inst, instructions)
-                        f.write(f'bool trans_{inst_name}(DisasContext *ctx, arg_{inst_name} *arg)\n')
-                        f.write('{\n')
-                        emit_switch(f, y, count, defaults, 0)
-                        #if isinstance(func[3]['not'], list):
-                        #    statement = ' && '.join([f"arg->{func[3]['name']} != {n}" for n in func[3]['not']])
-                        #    f.write(f"    if ({statement}) {{\n")
-                        #else:
-                        #    f.write(f"    if (arg->{func[3]['name']} != {func[3]['not']}) {{\n")
-                        #f.write(f'        trans_{func[1]}(ctx, arg);\n')
-                        #f.write( '    } else {\n')
-                        #f.write(f'        trans_{func[2]}(ctx, arg);\n')
-                        #f.write( '    }\n')
-                        f.write('}\n\n')
-
-        if args.output_decode_extra_functions:
-            with open(f'args.output_decode_extra_functions-common.c.inc', 'w') as f:
-                for func in check_not_functions:
-                    print(func)
-
     if args.out:
         with open(args.out, 'w') as out:
             out.write(str_includes)
@@ -988,7 +854,9 @@ def main():
                         vars = []
                         if 'variables' in y['encoding']:
                             for v in y['encoding']['variables']:
-                                vars.append('uint8_t ' + v['name'])
+                                s = var_size_from_location(v['location'])
+                                cs = bit_to_c_size(s)
+                                vars.append(f'uint{cs}_t ' + v['name'])
                         imm_vars = ', '.join([str(i+1) for i in range(0,len(vars))])
                         name = y['name']
                         out.write('\n')
@@ -1048,7 +916,9 @@ def main():
                     var_names = []
                     if 'variables' in y['encoding']:
                         for v in y['encoding']['variables']:
-                            vars.append('uint8_t ' + v['name'])
+                            s = var_size_from_location(v['location'])
+                            cs = bit_to_c_size(s)
+                            vars.append(f'uint{cs}_t ' + v['name'])
                             var_names.append(v['name'])
                     out.write('\n')
                     out.write(f"void {re.sub(r'\.', r'_', name)}({', '.join(vars)}) {{\n")
@@ -1061,9 +931,6 @@ def main():
                     op = re.sub(r'implemented\?', r'implemented', op)
                     op = re.sub(r'\$pc', r'pc', op)
                     op = re.sub(r'jump_halfword\(([a-z_A-Z]+)[ ]+\+[ ]+([a-z_A-Z\(\)]+)\)', r'xqci_jump_pcrel(\1, \2)', op)
-                    #for size,bits in re.findall(r"([0-9]+)'b([0-9]+)", op):
-                    #    size_rounded = 8*math.floor((Int(size)+8-1)/8)
-                    #    print(f"(uint{size}_t) 0b{bits}")
                     out.write(op)
                     out.write('}\n')
 
@@ -1076,23 +943,32 @@ def main():
                     if 'variables' in y['encoding']:
                         for i,v in enumerate(y['encoding']['variables']):
                             name = v['name']
-                            if 'imm' in name:
-                                out.write(f'int {name};\n')
+
+                            is_imm = var_is_imm(y['operation()'], name)
+
+                            cs = bit_to_c_size(var_size_from_location(v['location'])) if is_imm else 32
+                            out.write(f'uint{cs}_t {name};\n')
+
+                            if is_imm:
                                 out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
+                                if 'sign_extend' in v:
+                                    assert(v['sign_extend'] == True)
+                                    out.write(f"{name} = sextract{cs}({name}, 0, {s});\n")
+                                if 'left_shift' in v:
+                                    out.write(f"{name} <<= {v['left_shift']};\n")
                                 print_statements.append(f'printf("%u ", {name});\n')
                                 call_args.append(name);
                             elif not 'rd' in name:
-                                out.write(f'int {name};\n')
                                 out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
                                 out.write(f'cpu.X[{i+1}] = {name};\n')
                                 print_statements.append(f'printf("%u ", cpu.X[{i+1}].value);\n')
                                 call_args.append(str(i+1));
                             else:
-                                out.write(f'int {name};\n')
                                 out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
                                 out.write(f'cpu.X[{i+1}] = {name};\n')
                                 print_statements.append(f'printf("%u ", cpu.X[{i+1}].value);\n')
                                 call_args.append(str(i+1));
+
                     out.write(f"cpu.{op_name}({', '.join(call_args)}")
                     out.write(');\n')
                     for p in print_statements:
