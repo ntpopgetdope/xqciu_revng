@@ -83,3 +83,11 @@ for file in build/klee/*.cpp; do
     python scripts/assemble.py --inst-dir ${inst_dir} --inst-name ${basename} --io-file ${klee_io}/${basename} --out ${klee_tests}/${basename}
     chmod +x ${klee_tests}/${basename}-*
 done
+
+./scripts/decodetree-disas.py --static-decode='decode_xqci_16_impl' build/xqciu-16.decode --insnwidth=16 > build/riscv-xqci-16-decode.c.inc
+./scripts/decodetree-disas.py --static-decode='decode_xqci_32_impl' build/xqciu-32.decode --insnwidth=32 > build/riscv-xqci-32-decode.c.inc
+./scripts/decodetree-disas.py --static-decode='decode_xqci_48_impl' build/xqciu-48.decode --varinsnwidth=64 > build/riscv-xqci-48-decode.c.inc
+ python scripts/yaml-to-cpp.py \
+        --output-disas build/riscv-xqci \
+        --input-enabled build/xqciu_tcg.h \
+        submodules/riscv-unified-db/arch_overlay/qc_iu/inst/Xqci

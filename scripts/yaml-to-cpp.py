@@ -361,12 +361,12 @@ def should_translate(name):
         'qc.c.extu.yaml',
         'qc.clo.yaml',
         'qc.clrinti.yaml',
-        'qc.c.mienter.nest.yaml',
-        'qc.c.mienter.yaml',
-        'qc.c.mileaveret.yaml',
+        #'qc.c.mienter.nest.yaml',
+        #'qc.c.mienter.yaml',
+        #'qc.c.mileaveret.yaml',
         #'qc.c.mnret.yaml',
         #'qc.c.mret.yaml',
-        'qc.c.muladdi.yaml',
+        'qc.c.muliadd.yaml',
         'qc.c.mveqz.yaml',
         'qc.compress2.yaml',
         'qc.compress3.yaml',
@@ -467,8 +467,8 @@ def should_translate(name):
         'qc.setwmi.yaml',
         'qc.setwm.yaml',
         'qc.shladd.yaml',
-        #'qc.slasat.yaml',
-        #'qc.sllsat.yaml',
+        #'qc.shlsat.yaml',
+        #'qc.shlusat.yaml',
         'qc.srb.yaml',
         'qc.srh.yaml',
         'qc.srw.yaml',
@@ -564,6 +564,7 @@ def main():
     parser.add_argument('--output-decode-extra-functions')
     parser.add_argument('--output-trans')
     parser.add_argument('--output-klee')
+    parser.add_argument('--output-disas')
     parser.add_argument('--input-enabled')
     args = parser.parse_args()
 
@@ -985,6 +986,81 @@ def main():
                         print(f"{' '.join(command)} exited with {proc.returncode}")
                         print(f"stdout:\n{out}")
                         print(f"stdout:\n{err}")
+
+    if args.output_disas:
+        instructions = {}
+        for file in os.listdir(args.file):
+            if not should_translate(file):
+                continue
+
+            translated = ''
+            with open(args.input_enabled, 'r') as in_enabled:
+                translated = in_enabled.read()
+
+            y = None
+            with open(os.path.join(args.file, file), 'r') as f:
+                try:
+                    y = yaml.safe_load(f)
+                except yaml.YAMLError as e:
+                    print(f'Error: {e}')
+                    continue
+
+            instructions[y['name']] = y
+
+        with open(f'{args.output_disas}.h', 'w') as out:
+            out.write("#ifndef DISAS_RISCV_XQCI_H\n")
+            out.write("#define DISAS_RISCV_XQCI_H\n")
+            out.write("\n")
+            out.write("extern const rv_opcode_data xqci_opcode_data[];\n")
+            out.write("void decode_xqci(rv_decode *, rv_isa);\n")
+            out.write("\n")
+            out.write("#endif\n")
+
+        with open(f'{args.output_disas}.c', 'w') as out:
+            out.write('#include \"qemu/osdep.h\"\n')
+            out.write('#include \"qemu/bitops.h\"\n')
+            out.write('#include \"disas/riscv.h\"\n')
+            out.write('#include \"disas/riscv-xqci.h\"\n')
+            out.write('\n')
+
+            out.write("typedef enum {\n")
+            for inst in instructions:
+                y = instructions[inst]
+                variables = y['encoding']['variables'] if 'variables' in y['encoding'] else []
+                op_name = re.sub(r'\.', r'_', y['name'])
+                out.write(f"    rv_op_{op_name},\n")
+            out.write("} rv_xqci_opcode;\n")
+            out.write("\n")
+
+            out.write("const rv_opcode_data xqci_opcode_data[] = {\n")
+            for inst in instructions:
+                y = instructions[inst]
+                variables = y['encoding']['variables'] if 'variables' in y['encoding'] else []
+                name = y['name']
+                out.write(f"    {{ \"{name}\", rv_codec_none, rv_fmt_none, NULL, 0, 0, 0 }},\n")
+            out.write("};\n")
+
+            out.write("\n")
+
+            out.write("#include \"riscv-xqci-16-decode.c.inc\"\n\n")
+            out.write("#include \"riscv-xqci-32-decode.c.inc\"\n\n")
+            out.write("#include \"riscv-xqci-48-decode.c.inc\"\n\n")
+
+            out.write("void decode_xqci(rv_decode *dec, rv_isa isa) {\n")
+            out.write("    rv_inst inst = dec->inst;\n")
+            out.write("    dec->op = rv_op_illegal;\n")
+            out.write("    switch (dec->inst_length) {\n")
+            out.write("    case 2:\n")
+            out.write("        decode_xqci_16_impl(dec, inst);\n")
+            out.write("        break;\n")
+            out.write("    case 4:\n")
+            out.write("        decode_xqci_32_impl(dec, inst);\n")
+            out.write("        break;\n")
+            out.write("    case 6:\n")
+            out.write("        decode_xqci_48_impl(dec, inst << 16);\n")
+            out.write("        break;\n")
+            out.write("    }\n")
+            out.write("}\n")
 
 if __name__ == '__main__':
     main()
