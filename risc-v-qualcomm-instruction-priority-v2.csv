@@ -1,0 +1,116 @@
+Sr. No.;Instruction ;Instruction Category;Sub-extension;#Bits;QEMU priority
+1;qc.addsat rd, rs1, rs2 ;Arithmetic;Xqcia;32;
+2;qc.addusat rd, rs1, rs2 ;Arithmetic;Xqcia;32;
+3;qc.beqi rs1, imm, offset ;Branch immediate;Xqcibi;32;2
+4;qc.bgei rs1, imm, offset ;Branch immediate;Xqcibi;32;2
+5;qc.bgeui rs1, imm, offset ;Branch immediate;Xqcibi;32;2
+6;qc.blti rs1, imm, offset ;Branch immediate;Xqcibi;32;2
+7;qc.bltui rs1, imm, offset ;Branch immediate;Xqcibi;32;2
+8;qc.bnei rs1, imm, offset ;Branch immediate;Xqcibi;32;2
+9;qc.brev32 rd, rs1 ;Bit manipulation;Xqcibm;16;
+10;qc.c.bexti rd, shamt ;Bit manipulation;Xqcibm;16;6
+11;qc.c.bseti rd, shamt ;Bit manipulation;Xqcibm;16;6
+12;qc.c.extu rd, width ;Bit manipulation;Xqcibm;16;6
+13;qc.c.mienter;Interrupt prolog epilog;Xqciint;16;8
+14;qc.c.mienter.nest;Interrupt prolog epilog;Xqciint;16;8
+15;qc.c.mileaveret;Interrupt prolog epilog;Xqciint;16;8
+16;qc.c.muliadd rd, rs1, uimm;Load Store address calculation helper;Xqciac;16;4
+17;qc.c.mveqz rd, rs1;Conditional move;Xqcicm;16;
+18;qc.clo rd, rs1 ;Bit manipulation;Xqcibm;32;
+19;qc.cto rd, rs1 ;Bit manipulation;Xqcibm;32;
+20;qc.e.addai rd, imm ;Large Immediate arithmetic;Xqcilia;48;5
+21;qc.e.addi rd, rs1, imm ;Large Immediate arithmetic;Xqcilia;48;5
+22;qc.e.andai rd, imm ;Large Immediate arithmetic;Xqcilia;48;5
+23;qc.e.andi rd, rs1, imm ;Large Immediate arithmetic;Xqcilia;48;5
+24;qc.e.beqi rs1, imm, offset ;Branch immediate;Xqcibi;48;2
+25;qc.e.bgei rs1, imm, offset ;Branch immediate;Xqcibi;48;2
+26;qc.e.bgeui rs1, imm, offset ;Branch immediate;Xqcibi;48;2
+27;qc.e.blti rs1, imm, offset ;Branch immediate;Xqcibi;48;2
+28;qc.e.bltui rs1, imm, offset ;Branch immediate;Xqcibi;48;2
+29;qc.e.bnei rs1, imm, offset ;Branch immediate;Xqcibi;48;2
+30;qc.e.j imm ;Long Branch;Xqcilb;48;
+31;qc.e.jal imm ;Long Branch;Xqcilb;48;
+32;qc.e.lb rd, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+33;qc.e.lbu rd, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+34;qc.e.lh rd, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+35;qc.e.lhu rd, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+36;qc.e.li rd, imm ;Large Immediate;Xqcili;48;1
+37;qc.e.lw rd, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+38;qc.e.orai rd, imm ;Large Immediate arithmetic;Xqcilia;48;5
+39;qc.e.ori rd, rs1, imm ;Large Immediate arithmetic;Xqcilia;48;5
+40;qc.e.sb rs2, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+41;qc.e.sh rs2, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+42;qc.e.sw rs2, imm(rs1) ;Large Offset Ld St;Xqcilo;48;3
+43;qc.e.xorai rd, imm;Large Immediate arithmetic;Xqcilia;48;5
+44;qc.e.xori rd, rs1, imm;Large Immediate arithmetic;Xqcilia;48;5
+45;qc.ext;Bit manipulation;Xqcibm;32;6
+46;qc.extd;Bit manipulation;Xqcibm;32;
+47;qc.extdpr;Bit manipulation;Xqcibm;32;
+48;qc.extdprh;Bit manipulation;Xqcibm;32;
+49;qc.extdr;Bit manipulation;Xqcibm;32;
+50;qc.extdu rd, rs1, width, shamt ;Bit manipulation;Xqcibm;32;
+51;qc.extdupr rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+52;qc.extduprh rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+53;qc.extdur rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+54;qc.extu rd, rs1, width, shamt ;Bit manipulation;Xqcibm;32;6
+55;qc.insb rd, rs1, width, shamt ;Bit manipulation;Xqcibm;32;6
+56;qc.insbh rd, rs1, width, shamt ;Bit manipulation;Xqcibm;32;
+57;qc.insbhr rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+58;qc.insbi rd, imm, width, shamt ;Bit manipulation;Xqcibm;32;6
+59;qc.insbpr rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+60;qc.insbprh rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+61;qc.insbr rd, rs1, rs2 ;Bit manipulation;Xqcibm;32;
+62;qc.insbri rd, rs1, imm ;Bit manipulation;Xqcibm;32;
+63;qc.li rd, imm ;Large Immediate;Xqcili;32;1
+64;qc.lieq rd, rs1, rs2, simm ;Conditional load immediate;Xqcicli;32;10
+65;qc.lieqi rd, rs1, imm, simm ;Conditional load immediate;Xqcicli;32;10
+66;qc.lige rd, rs1, rs2, simm ;Conditional load immediate;Xqcicli;32;10
+67;qc.ligei rd, rs1, imm, simm ;Conditional load immediate;Xqcicli;32;10
+68;qc.ligeu rd, rs1, rs2, simm ;Conditional load immediate;Xqcicli;32;10
+69;qc.ligeui rd, rs1, imm, simm ;Conditional load immediate;Xqcicli;32;10
+70;qc.lilt rd, rs1, rs2, simm ;Conditional load immediate;Xqcicli;32;10
+71;qc.lilti rd, rs1, imm, simm ;Conditional load immediate;Xqcicli;32;10
+72;qc.liltu rd, rs1, rs2, simm ;Conditional load immediate;Xqcicli;32;10
+73;qc.liltui rd, rs1, imm, simm ;Conditional load immediate;Xqcicli;32;10
+74;qc.line rd, rs1, rs2, simm ;Conditional load immediate;Xqcicli;32;10
+75;qc.linei rd, rs1, imm, simm ;Conditional load immediate;Xqcicli;32;10
+76;qc.lrb rd, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+77;qc.lrbu rd, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+78;qc.lrh rd, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+79;qc.lrhu rd, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+80;qc.lrw rd, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+81;qc.lwm rd, rs2, imm(rs1) ;Multi register load store;Xqcilsm;32;7
+82;qc.lwmi rd, length, imm(rs1) ;Multi register load store;Xqcilsm;32;7
+83;qc.muliadd rd, rs1, imm ;Load Store address calculation helper;Xqciac;32;4
+84;qc.mveq rd, rs1, rs2, ;Conditional move;Xqcicm;32;9
+85;qc.mveqi rd, rs1, imm, rs3 ;Conditional move;Xqcicm;32;9
+86;qc.mvge rd, rs1, rs2, rs3 ;Conditional move;Xqcicm;32;9
+87;qc.mvgei rd, rs1, imm, rs3 ;Conditional move;Xqcicm;32;9
+88;qc.mvgeu rd, rs1, rs2, rs3 ;Conditional move;Xqcicm;32;9
+89;qc.mvgeui rd, rs1, imm, rs3 ;Conditional move;Xqcicm;32;9
+90;qc.mvlt rd, rs1, rs2, rs3 ;Conditional move;Xqcicm;32;9
+91;qc.mvlti rd, rs1, imm, rs3 ;Conditional move;Xqcicm;32;9
+92;qc.mvltu rd, rs1, rs2, rs3 ;Conditional move;Xqcicm;32;9
+93;qc.mvltui rd, rs1, imm, rs3 ;Conditional move;Xqcicm;32;9
+94;qc.mvne rd, rs1, rs2, rs3 ;Conditional move;Xqcicm;32;9
+95;qc.mvnei rd, rs1, imm, rs3 ;Conditional move;Xqcicm;32;9
+96;qc.selecteqi rd, imm, rs2, rs3 ;Select conditional;Xqcics;32;11
+97;qc.selectieq rd, rs1, rs2, simm2 ;Select conditional;Xqcics;32;11
+98;qc.selectieqi rd, imm, rs2, simm2 ;Select conditional;Xqcics;32;11
+99;qc.selectiieq rd, rs1, simm1, simm2 ;Select conditional;Xqcics;32;11
+100;qc.selectiine rd, rs1, simm1, simm2 ;Select conditional;Xqcics;32;11
+101;qc.selectine rd, rs1, rs2, simm2 ;Select conditional;Xqcics;32;11
+102;qc.selectinei rd, imm, rs2, simm2 ;Select conditional;Xqcics;32;11
+103;qc.selectnei rd, imm, rs2, rs3 ;Select conditional;Xqcics;32;11
+104;qc.setwm rs3, rs2, imm(rs1) ;Multi register load store;Xqcilsm;32;7
+105;qc.setwmi rs3, rs2, imm(rs1) ;Multi register load store;Xqcilsm;32;7
+106;qc.shladd;Load Store address calculation helper;Xqciac;32;4
+107;qc.shlsat rd, rs1, rs2 ;Arithmetic;Xqcia;32;
+108;qc.shlusat rd, rs1, rs2 ;Arithmetic;Xqcia;32;
+109;qc.srb rs3, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+110;qc.srh rs3, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+111;qc.srw rs3, rs1, rs2, shamt ;Scaled Load Store;Xqcisls;32;
+112;qc.subsat rd, rs1, rs2 ;Arithmetic;Xqcia;32;
+113;qc.subusat rd, rs1, rs2 ;Arithmetic;Xqcia;32;
+114;qc.swm rs3, rs2, imm(rs1) ;Multi register load store;Xqcilsm;32;7
+115;qc.swmi rs3, length, imm(rs1) ;Multi register load store;Xqcilsm;32;7
