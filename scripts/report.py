@@ -27,6 +27,7 @@ def main():
         prio = {}
         if args.prioritized:
             with open(args.prioritized, 'r') as f:
+                next(f)
                 for line in f.readlines():
                     array = line.strip().split(';')
                     name = array[1].split(' ')[0]
@@ -40,49 +41,65 @@ def main():
         num_prio_inst = 0
         num_supported_prio_inst = 0
         num_supported_inst = 0
+
+        instructions = {}
         for file in os.listdir(args.inst_dir):
             with open(os.path.join(args.inst_dir, file), 'r') as f:
                 try:
-                    num_inst += 1
-
                     y = yaml.safe_load(f)
                     name = y['name']
-                    op_name = re.sub(r'\.', r'_', y['name'])
-
-                    num_tests = 0
-                    if args.io:
-                        path = os.path.join(args.io, name)
-                        if os.path.exists(path):
-                            with open(path, 'r') as f:
-                                num_tests = len(f.readlines())
-
-                    prioritized = name in prio
-
-                    p = max_prio
-                    if prioritized:
-                        p = int(prio[name][5])
-
-                    supported = op_name in translated
-                    num_prio_inst += 1 if prioritized else 0;
-                    num_supported_inst += 1 if supported else 0
-                    num_supported_prio_inst += 1 if prioritized and supported else 0
-                    supported_str = '**yes**' if supported else 'no'
-                    num_tests_str = str(num_tests) if supported else '-'
-                    # Note p_str is either an int or a string.., string is used
-                    # for pretty printing of unprioritized instructions, and the
-                    # integer used to denote priority, and is used in sorting
-                    # instructions based on prio.
-                    p_str = '-' if p == 100 else p
-                    name_str = f'**`{name}`**'
-
-                    table_line = (p_str, name_str, supported_str, num_tests_str)
-                    if prioritized:
-                        table_prio.append(table_line)
-                    else:
-                        table_other.append(table_line)
-
+                    op_name = re.sub(r'\.', r'_', name)
+                    instructions[op_name] = y
                 except yaml.YAMLError as e:
                     print(e)
+
+        for prio_inst in prio:
+            prio_name = prio[prio_inst][1].split(' ')[0]
+            op_name = re.sub(r'\.', r'_', prio_name)
+            if op_name not in instructions:
+                print(f'{prio_name} not in instructions')
+
+        for inst in instructions:
+            num_inst += 1
+
+            y = instructions[inst]
+            name = y['name']
+            op_name = inst
+
+            num_tests = 0
+            if args.io:
+                path = os.path.join(args.io, name)
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        num_tests = len(f.readlines())
+
+            prioritized = name in prio
+
+            p = max_prio
+            if prioritized:
+                if len(prio[name][5]) > 0:
+                    p = int(prio[name][5])
+                else:
+                    p = 16
+
+            supported = op_name in translated
+            num_prio_inst += 1 if prioritized else 0;
+            num_supported_inst += 1 if supported else 0
+            num_supported_prio_inst += 1 if prioritized and supported else 0
+            supported_str = '**yes**' if supported else 'no'
+            num_tests_str = str(num_tests) if supported else '-'
+            # Note p_str is either an int or a string.., string is used
+            # for pretty printing of unprioritized instructions, and the
+            # integer used to denote priority, and is used in sorting
+            # instructions based on prio.
+            p_str = '-' if p == 100 else p
+            name_str = f'**`{name}`**'
+
+            table_line = (p_str, name_str, supported_str, num_tests_str)
+            if prioritized:
+                table_prio.append(table_line)
+            else:
+                table_other.append(table_line)
 
         if args.out:
             with open(args.out, 'w') as f:
