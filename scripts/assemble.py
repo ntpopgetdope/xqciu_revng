@@ -5,6 +5,7 @@ import yaml
 import re
 import os
 import struct
+from math import ceil
 from ctypes import c_int32
 
 def ashr32(x, n):
@@ -22,6 +23,8 @@ class InstPrinter:
         self.inst_dir = inst_dir
         self.bytes = bytes()
 
+        # Manually add encoding for two riscv32 instructions which need to be
+        # emitted with different operands in tests.
         try:
             self.yamls['lui'] = yaml.safe_load(
             """
@@ -101,14 +104,12 @@ class InstPrinter:
                     offset += length
 
         enc_len = len(encoding['match'])
-        if enc_len == 16:
-          self.bytes += struct.pack('<H', enc)
-        elif enc_len == 32:
-          self.bytes += struct.pack('<I', enc)
-        elif enc_len == 48:
-          self.bytes += struct.pack('<Q', enc)[0:6]
+        num_bytes = ceil(enc_len/8)
+        self.bytes += struct.pack('<Q', enc)[0:num_bytes]
 
     def exit(self):
+        # Hard code checking of expected vs returned value.
+        # Only testing against state in returned register.
         self.bytes += bytes.fromhex('6396ef01') # bne t6,t5,12
         self.bytes += bytes.fromhex('13050000') # li a0, 0
         self.bytes += bytes.fromhex('6f008000') # j 8
@@ -116,47 +117,40 @@ class InstPrinter:
         self.bytes += bytes.fromhex('9308d005') # li a7 93
         self.bytes += bytes.fromhex('73000000') # ecall
 
-def create_elf(out, text_bits):
+def output_elf(f, text_bytes):
     # ELF Header
-    e_ident = b'\x7fELF' + b'\x01' + b'\x01' + b'\x01' + b'\x00' + b'\x00' * 8  # ELF Header
-    e_type = struct.pack('<H', 2)        # ET_EXEC (Executable)
-    e_machine = struct.pack('<H', 243)    # EM_X86_64 (x86-64 architecture)
-    e_version = struct.pack('<I', 1)      # Version
-    e_entry = struct.pack('<I', 0x10000+52+32) # Entry point (dummy address)
-    e_phoff = struct.pack('<I', 52)      # Program header offset
-    e_shoff = struct.pack('<I', 0)       # Section header offset
-    e_flags = struct.pack('<I', 0)       # Flags
-    e_ehsize = struct.pack('<H', 52)     # ELF Header size
-    e_phentsize = struct.pack('<H', 32)  # Program header entry size
-    e_phnum = struct.pack('<H', 1)       # Number of program headers
-    e_shentsize = struct.pack('<H', 0)   # No section headers
-    e_shnum = struct.pack('<H', 0)       # No section headers
-    e_shstrndx = struct.pack('<H', 0)    # No section header string table
-
-    elf_header = e_ident + e_type + e_machine + e_version + e_entry + e_phoff + e_shoff + e_flags + e_ehsize + e_phentsize + e_phnum + e_shentsize + e_shnum + e_shstrndx
+    f.write(b'\x7fELF' + b'\x01'*3 + b'\x00' * 9)  # ELF Header
+    f.write(struct.pack('<H', 2))                  # ET_EXEC (Executable)
+    f.write(struct.pack('<H', 243))                # EM_* (riscv32 architecture)
+    f.write(struct.pack('<I', 1))                  # Version
+    f.write(struct.pack('<I', 0x10000+52+32))      # Entry point (dummy address)
+    f.write(struct.pack('<I', 52))                 # Program header offset
+    f.write(struct.pack('<I', 0))                  # Section header offset
+    f.write(struct.pack('<I', 0))                  # Flags
+    f.write(struct.pack('<H', 52))                 # ELF Header size
+    f.write(struct.pack('<H', 32))                 # Program header entry size
+    f.write(struct.pack('<H', 1))                  # Number of program headers
+    f.write(struct.pack('<H', 0))                  # No. section headers
+    f.write(struct.pack('<H', 0))                  # No. section headers
+    f.write(struct.pack('<H', 0))                  # No. section header string table
 
     # Program Header
-    p_type = struct.pack('<I', 1)         # PT_LOAD
-    p_offset = struct.pack('<I', 0)       # Offset in the file
-    p_vaddr = struct.pack('<I', 0x10000) # Virtual address
-    p_paddr = struct.pack('<I', 0x10000) # Physical address
-    p_filesz = struct.pack('<I', len(text_bits)) # Size of the segment in the file
-    p_memsz = struct.pack('<I', len(text_bits))  # Size of the segment in memory
-    p_flags = struct.pack('<I', 5)        # R (read) and E (execute)
-    p_align = struct.pack('<I', 0x1000)   # Alignment
+    f.write(struct.pack('<I', 1))                  # PT_LOAD
+    f.write(struct.pack('<I', 0))                  # Offset in the file
+    f.write(struct.pack('<I', 0x10000))            # Virtual address
+    f.write(struct.pack('<I', 0x10000))            # Physical address
+    f.write(struct.pack('<I', len(text_bytes)))    # Size of the segment in the file
+    f.write(struct.pack('<I', len(text_bytes)))    # Size of the segment in memory
+    f.write(struct.pack('<I', 5))                  # R (read) and E (execute)
+    f.write(struct.pack('<I', 0x1000))             # Alignment
 
-    program_header = p_type + p_offset + p_vaddr + p_paddr + p_filesz + p_memsz + p_flags + p_align
-
-    # Create the ELF file
-    with open(out, 'wb') as f:
-        f.write(elf_header)
-        f.write(program_header)
-        f.write(text_bits)  # Raw bits for the .text section
+    # Text section
+    f.write(text_bytes)
 
 def main():
     parser = argparse.ArgumentParser(
         prog='assemble',
-        description='Convert Xqciu instruction definitions from yaml to cpp'
+        description='Assemble KLEE output to elf tests'
     )
     parser.add_argument('--inst-dir')
     parser.add_argument('--io-file')
@@ -164,17 +158,7 @@ def main():
     parser.add_argument('--out')
     args = parser.parse_args()
 
-# 2155905152 0 2155905152
-# 0 0 0
-# 2147483647 128 2147483647
-# 2147483679 2147483648 2147483648
-
     printer = InstPrinter(args.inst_dir)
-    #printer.li(1, 5) # t0
-    #printer.li(2, 6) # t1
-    #printer.append('qc32.addsat', 5, 6, 30) # t5
-    #printer.li(3, 31) # t6
-    #printer.exit()
 
     if args.io_file and args.inst_name and args.out:
         if not args.inst_name in printer.yamls:
@@ -209,7 +193,8 @@ def main():
                 printer.li(expected, 31) # t6
                 printer.exit()
 
-                create_elf(f'{args.out}-{j}', printer.bytes)
+                with open(f'{args.out}-{j}', 'wb') as f:
+                    output_elf(f, printer.bytes)
 
 if __name__ == '__main__':
     main()
