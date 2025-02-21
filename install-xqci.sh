@@ -11,3 +11,5 @@ cp build/riscv-xqci.h submodules/xqci/disas/
 cp build/riscv-xqci-16-decode.c.inc submodules/xqci/disas/
 cp build/riscv-xqci-32-decode.c.inc submodules/xqci/disas/
 cp build/riscv-xqci-48-decode.c.inc submodules/xqci/disas/
+cp build/riscv-xqci-trans.c.inc submodules/xqci/disas/
+cp xqciu_tcg_manual.c.inc submodules/xqci/target/riscv/xqci/

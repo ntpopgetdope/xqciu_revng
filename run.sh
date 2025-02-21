@@ -44,11 +44,13 @@ echo "Generating:"
 echo "  - klee cpp input"
 echo "  - qemu decodetree input"
 echo "  - qemu decodetree translation functions"
+echo "  - qemu decodetree disas functions"
 python scripts/yaml-to-cpp.py \
     --output-klee build/klee \
     --output-trans build/xqciu_trans.c.inc \
     --output-decode build/xqciu \
     --output-decode-extra-functions build/xqciu-decode-extra \
+    --output-disas build/riscv-xqci \
     --input-enabled build/xqciu_tcg.h \
     ${inst_dir}
 
@@ -87,7 +89,3 @@ done
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_16_impl' build/xqciu-16.decode --insnwidth=16 > build/riscv-xqci-16-decode.c.inc
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_32_impl' build/xqciu-32.decode --insnwidth=32 > build/riscv-xqci-32-decode.c.inc
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_48_impl' build/xqciu-48.decode --varinsnwidth=64 > build/riscv-xqci-48-decode.c.inc
- python scripts/yaml-to-cpp.py \
-        --output-disas build/riscv-xqci \
-        --input-enabled build/xqciu_tcg.h \
-        submodules/riscv-unified-db/arch_overlay/qc_iu/inst/Xqci
