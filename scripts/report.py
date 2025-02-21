@@ -5,6 +5,7 @@ import yaml
 import re
 import os
 from operator import itemgetter
+import common
 
 def main():
     parser = argparse.ArgumentParser(
@@ -43,6 +44,7 @@ def main():
         num_supported_inst = 0
 
         instructions = {}
+        manual_tcg_impl = set()
         for file in os.listdir(args.inst_dir):
             with open(os.path.join(args.inst_dir, file), 'r') as f:
                 try:
@@ -50,6 +52,8 @@ def main():
                     name = y['name']
                     op_name = re.sub(r'\.', r'_', name)
                     instructions[op_name] = y
+                    if file in common.decode_only:
+                        manual_tcg_impl.add(op_name)
                 except yaml.YAMLError as e:
                     print(e)
 
@@ -70,8 +74,8 @@ def main():
             if args.io:
                 path = os.path.join(args.io, name)
                 if os.path.exists(path):
-                    with open(path, 'r') as f:
-                        num_tests = len(f.readlines())
+                    test_yaml = common.load_yaml_or_exit(path)
+                    num_tests = len(test_yaml)
 
             prioritized = name in prio
 
@@ -82,7 +86,7 @@ def main():
                 else:
                     p = 16
 
-            supported = op_name in translated
+            supported = op_name in translated or op_name in manual_tcg_impl
             num_prio_inst += 1 if prioritized else 0;
             num_supported_inst += 1 if supported else 0
             num_supported_prio_inst += 1 if prioritized and supported else 0

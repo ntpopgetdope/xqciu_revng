@@ -376,7 +376,7 @@ class FunctionField:
         return self.func + '(' + str(self.base) + ')'
 
     def str_extract(self, lvalue_formatter):
-        return (self.func + '(ctx, '
+        return (self.func + '(dec, '
                 + self.base.str_extract(lvalue_formatter) + ')')
 
     def referenced_fields(self):
@@ -401,7 +401,7 @@ class ParameterField:
         return self.func
 
     def str_extract(self, lvalue_formatter):
-        return self.func + '(ctx)'
+        return self.func + '(dec)'
 
     def referenced_fields(self):
         return []
@@ -540,8 +540,8 @@ class Format(General):
 
     def output_extract(self):
         output('static void ', self.extract_name(), '(rv_decode *dec, ',
-               insntype, ' insn)\n{\n')
-        self.output_fields(str_indent(4), lambda n: 'dec->' + n)
+               self.base.struct_name(), ' *a, ', insntype, ' insn)\n{\n')
+        self.output_fields(str_indent(4), lambda n: 'a->' + n)
         output('}\n\n')
 # end Format
 
@@ -552,10 +552,10 @@ class Pattern(General):
     def output_decl(self):
         global translate_scope
         global translate_prefix
-        #output('typedef ', self.base.base.struct_name(),
-        #       ' arg_', self.name, ';\n')
-        #output(translate_scope, 'bool ', translate_prefix, '_', self.name,
-        #       '(DisasContext *ctx, arg_', self.name, ' *a);\n')
+        output('typedef ', self.base.base.struct_name(),
+               ' arg_', self.name, ';\n')
+        output(translate_scope, 'bool ', translate_prefix, '_', self.name,
+               '(rv_decode *dec, arg_', self.name, ' *a);\n')
 
     def output_code(self, i, extracted, outerbits, outermask):
         global translate_prefix
@@ -587,14 +587,13 @@ class Pattern(General):
             assert not extracted, "dangling fmt refs but it was already extracted"
         if not extracted:
             output(ind, self.base.extract_name(),
-                   '(dec, insn);\n')
+                   '(dec, &u.f_', arg, ', insn);\n')
         if not fmt_refs:
             # pattern fields last
             self.output_fields(ind, lambda n: 'u.f_' + arg + '.' + n)
 
-        output(ind, 'dec->op = ', 'rv_op_', self.name, ';\n')
-        #output(ind, 'if (', translate_prefix, '_', self.name,
-        #       '(ctx, &u.f_', arg, ')) return true;\n')
+        output(ind, 'if (', translate_prefix, '_', self.name,
+               '(dec, &u.f_', arg, ')) return true;\n')
 
     # Normal patterns do not have children.
     def build_tree(self):
@@ -743,7 +742,7 @@ class Tree:
         # been initialised at this point.
         if not extracted and self.base and not self.base.dangling_references():
             output(ind, self.base.extract_name(),
-                   '(dec, insn);\n')
+                   '(dec, &u.f_', self.base.base.name, ', insn);\n')
             extracted = True
 
         # Attempt to aid the compiler in producing compact switch statements.
@@ -1366,8 +1365,8 @@ class SizeTree:
 
         # If we need to load more bytes to test, do so now.
         if extracted < self.width:
-            #output(ind, f'insn = {decode_function}_load_bytes',
-            #       f'(ctx, insn, {extracted // 8}, {self.width // 8});\n')
+            output(ind, f'insn = {decode_function}_load_bytes',
+                   f'(dec, insn, {extracted // 8}, {self.width // 8});\n')
             extracted = self.width
 
         # Attempt to aid the compiler in producing compact switch statements.
@@ -1418,8 +1417,8 @@ class SizeLeaf:
 
         # If we need to load more bytes, do so now.
         if extracted < self.width:
-            #output(ind, f'insn = {decode_function}_load_bytes',
-            #       f'(ctx, insn, {extracted // 8}, {self.width // 8});\n')
+            output(ind, f'insn = {decode_function}_load_bytes',
+                   f'(dec, insn, {extracted // 8}, {self.width // 8});\n')
             extracted = self.width
         output(ind, 'return insn;\n')
 # end SizeLeaf
@@ -1589,9 +1588,9 @@ def main():
                                      errors="ignore")
 
     output_autogen()
-    #for n in sorted(arguments.keys()):
-    #    f = arguments[n]
-    #    f.output_def()
+    for n in sorted(arguments.keys()):
+        f = arguments[n]
+        f.output_def()
 
     # A single translate function can be invoked for different patterns.
     # Make sure that the argument sets are the same, and declare the
@@ -1631,22 +1630,22 @@ def main():
     i4 = str_indent(4)
 
     if len(allpatterns) != 0:
-    #    output(i4, 'union {\n')
-    #    for n in sorted(arguments.keys()):
-    #        f = arguments[n]
-    #        output(i4, i4, f.struct_name(), ' f_', f.name, ';\n')
-    #    output(i4, '} u;\n\n')
+        output(i4, 'union {\n')
+        for n in sorted(arguments.keys()):
+            f = arguments[n]
+            output(i4, i4, f.struct_name(), ' f_', f.name, ';\n')
+        output(i4, '} u;\n\n')
         toppat.output_code(4, False, 0, 0)
 
     output(i4, 'return false;\n')
     output('}\n')
 
-    #if variablewidth:
-        #output('\n', decode_scope, insntype, ' ', decode_function,
-        #       '_load(DisasContext *ctx)\n{\n',
-        #       '    ', insntype, ' insn = 0;\n\n')
-        #stree.output_code(4, 0, 0, 0)
-        #output('}\n')
+    if variablewidth:
+        output('\n', decode_scope, insntype, ' ', decode_function,
+               '_load(rv_decode *dec)\n{\n',
+               '    ', insntype, ' insn = 0;\n\n')
+        stree.output_code(4, 0, 0, 0)
+        output('}\n')
 
     if output_file:
         output_fd.close()
