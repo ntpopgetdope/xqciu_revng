@@ -10,6 +10,18 @@ decode_only = {
     'qc.swm.yaml',
     'qc.setwmi.yaml',
     'qc.setwm.yaml',
+    'qc.shlsat.yaml',
+    'qc.shlusat.yaml',
+    'qc.c.mveqz.yaml',
+    'qc.c.mienter.yaml',
+    'qc.c.mienter.nest.yaml',
+    'qc.c.mileaveret.yaml',
+}
+
+system_only = {
+    'qc.c.mienter',
+    'qc.c.mienter.nest',
+    'qc.c.mileaveret',
 }
 
 def ranges_in_location(loc_str):
@@ -51,6 +63,8 @@ def op_to_cpp(op):
     op = re.sub(r'raise (.*) if (.*);', r'// \1', op)
 
     op = re.sub(r'for \(', r'#pragma unroll\nfor (', op)
+
+    op = re.sub(r'\(1 << ([a-zA-Z0-9]+)\)', r'(1ul << \1.value)', op)
 
     op = re.sub(r'{XLEN{1\'b0}}', r'0u', op)
     op = re.sub(r'{XLEN{1\'b1}}', r'~0u', op)

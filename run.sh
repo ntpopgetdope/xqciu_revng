@@ -3,7 +3,8 @@
 clangpp=$1
 klee=$2
 inst_dir=$3
-llvm_config=$4
+csr_dir=$4
+llvm_config=$5
 klee_bc=build/klee/bc
 klee_out=build/klee/out
 klee_exes=build/klee/exes
@@ -78,7 +79,7 @@ for file in build/klee/*.cpp; do
 
     for test in ${klee_out}/${basename}/*.ktest; do
         echo "    - Collecting test ${test}"
-        KTEST_FILE=$test ./${klee_exes}/${basename} &>> ${klee_io}/${basename}
+        KTEST_FILE=$test ./${klee_exes}/${basename} >> ${klee_io}/${basename}
     done
 
     echo "    - Assembling test ${klee_io}/${basename}"
@@ -89,3 +90,5 @@ done
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_16_impl' build/xqciu-16.decode --insnwidth=16 > build/riscv-xqci-16-decode.c.inc
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_32_impl' build/xqciu-32.decode --insnwidth=32 > build/riscv-xqci-32-decode.c.inc
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_48_impl' build/xqciu-48.decode --varinsnwidth=64 > build/riscv-xqci-48-decode.c.inc
+
+./scripts/csr.py --inst-dir=${inst_dir} --csr-dir=${csr_dir} --out-c=build/xqciu_csr.c --out-h=build/xqciu_csr.h

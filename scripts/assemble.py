@@ -82,17 +82,20 @@ class InstPrinter:
             len_expected = len(encoding['variables'])
             len_got = len(args)
             if len_got != len_expected:
-                print(f'error: {inst} expected {
-                      len_expected} args got {len_got}')
+                print(f'error: {inst} expected {len_expected} args got {len_got}')
                 return
 
             for i, v in enumerate(encoding['variables']):
                 offset = 0
 
+                arg_value = args[i]
+                if 'left_shift' in v:
+                    arg_value >>= v['left_shift']
+
                 ranges = [p for p in common.ranges_in_location(v['location'])]
                 for start, length in reversed(ranges):
                     mask = ((1 << length) - 1) << offset
-                    arg_chunk = (args[i] & mask) >> offset
+                    arg_chunk = (arg_value & mask) >> offset
                     enc |= (arg_chunk << start)
                     offset += length
 
@@ -176,6 +179,10 @@ def output_elf(f, text_bytes):
     f.write(text_bytes)
 
 
+def test_has_variables(test):
+    return isinstance(test['variables'], list)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog='assemble',
@@ -191,8 +198,9 @@ def main():
     io_yaml = common.load_yaml_or_exit(args.io_file)
     io_var_map = {}
     for test in io_yaml:
-        for v in test['variables']:
-            io_var_map[v['name']] = v
+        if test_has_variables(test):
+            for v in test['variables']:
+                io_var_map[v['name']] = v
 
     if not args.inst_name in printer.yamls:
         printer.load(args.inst_name)
@@ -210,24 +218,30 @@ def main():
         dst_reg = 9
         expected_result = None
 
-        inst_args = []
-        for i, v in enumerate(test['variables']):
-            if not 'in' in v:
+        if 'has_jump' in test:
+            if test['has_jump']['valid_test_jump'] == 0:
                 continue
-            if common.var_is_imm(y['operation()'], v['name']):
-                inst_args.append(v['in'])
-            else:
-                reg = dst_reg + 1 + i
-                if 'out' in v:
-                    reg = dst_reg
-                    expected_result = v['out']
 
-                if 'in' in v:
-                    printer.li(v['in'], reg)
+        inst_args = []
+        if test_has_variables(test):
+            for i, v in enumerate(test['variables']):
+                if not 'in' in v:
+                    continue
 
-                if is_compressed:
-                    reg -= 8
-                inst_args.append(reg)
+                if common.var_is_imm(y['operation()'], v['name']):
+                    inst_args.append(v['in'])
+                else:
+                    reg = dst_reg + 1 + i
+                    if 'out' in v:
+                        reg = dst_reg
+                        expected_result = v['out']
+
+                    if 'in' in v:
+                        printer.li(v['in'], reg)
+
+                    if is_compressed:
+                        reg -= 8
+                    inst_args.append(reg)
 
         printer.append(args.inst_name, *inst_args)
         if expected_result != None:

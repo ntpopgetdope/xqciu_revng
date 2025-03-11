@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 
 import yaml
 import argparse
@@ -17,6 +17,7 @@ str_includes = """
 #include <stddef.h>
 #include <initializer_list>
 #include <iterator>
+#include <type_traits>
 #include "tcg_global_mappings.h"
 """
 
@@ -409,6 +410,11 @@ struct CPUArchState {
 
     static constexpr uint32_t XLEN     = 32;
 
+    template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 1>
+    typename std::make_signed<T>::type _signed(T t) {
+        return t;
+    }
+
     inline int32_t _signed(XReg reg) {
         return (int32_t) reg.value;
     }
@@ -480,7 +486,7 @@ def should_decode_only(name):
 
 def should_translate(name):
     return name in {
-        #'qc.addsat.yaml',
+        'qc.addsat.yaml',
         'qc.addusat.yaml',
         'qc.beqi.yaml',
         'qc.bgei.yaml',
@@ -506,7 +512,6 @@ def should_translate(name):
         #'qc.c.mret.yaml',
         'qc.c.muliadd.yaml',
         'qc.muliadd.yaml',
-        #'qc.c.mveqz.yaml',
         'qc.compress2.yaml',
         'qc.compress3.yaml',
         'qc.c.setint.yaml',
@@ -597,14 +602,14 @@ def should_translate(name):
         'qc.normeu.yaml',
         'qc.normu.yaml',
         'qc.norm.yaml',
-        #'qc.selecteqi.yaml',
+        'qc.selecteqi.yaml',
         'qc.selectieqi.yaml',
         'qc.selectieq.yaml',
         'qc.selectiieq.yaml',
         'qc.selectiine.yaml',
         'qc.selectinei.yaml',
         'qc.selectine.yaml',
-        #'qc.selectnei.yaml',
+        'qc.selectnei.yaml',
         'qc.setinti.yaml',
         'qc.shladd.yaml',
         #'qc.shlsat.yaml',
@@ -612,7 +617,7 @@ def should_translate(name):
         'qc.srb.yaml',
         'qc.srh.yaml',
         'qc.srw.yaml',
-        #'qc.subsat.yaml',
+        'qc.subsat.yaml',
         'qc.subusat.yaml',
         'qc.wrapi.yaml',
         'qc.wrap.yaml'
@@ -714,13 +719,15 @@ def main():
                         out.write(f'static bool trans_{op_name}(DisasContext *ctx, arg_{op_name} *arg)\n')
                         out.write('{\n')
 
+                        if name in common.system_only:
+                             out.write('#ifdef CONFIG_USER_ONLY\n')
+                             out.write('    return false;\n')
+                             out.write('#else\n')
+
                         str_args = []
                         if 'variables' in y['encoding']:
                             str_args = [f"arg->{v['name']}" for v in y['encoding']['variables']]
                             for v in y['encoding']['variables']:
-
-                                # TODO: Order?
-
                                 if 'not' in v:
                                     not_values = v['not'] if isinstance(v['not'], list) else [v['not']]
                                     conditions = [f"arg->{v['name']} == {n}" for n in not_values]
@@ -740,6 +747,10 @@ def main():
                             out.write('    gen_goto_tb(ctx, 0, ctx->cur_insn_len);\n');
 
                         out.write('    return true;\n')
+
+                        if name in common.system_only:
+                             out.write('#endif\n')
+
                         out.write('}\n')
 
                     except yaml.YAMLError as e:
@@ -1068,6 +1079,11 @@ def main():
                     out.write(f'static bool trans_{op_name}(rv_decode *dec, arg_{op_name} *arg)\n')
                     out.write('{\n')
 
+                    if name in common.system_only:
+                         out.write('#ifdef CONFIG_USER_ONLY\n')
+                         out.write('    return false;\n')
+                         out.write('#else\n')
+
                     str_args = []
                     if 'variables' in y['encoding']:
                         str_args = [f"arg->{v['name']}" for v in y['encoding']['variables']]
@@ -1101,6 +1117,10 @@ def main():
 
                     out.write(f'    dec->op = rv_op_{op_name};\n')
                     out.write( '    return true;\n')
+
+                    if name in common.system_only:
+                         out.write('#endif\n')
+
                     out.write('}\n')
 
     if args.out:
@@ -1219,7 +1239,7 @@ def main():
                             out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
                             if 'sign_extend' in v:
                                 assert(v['sign_extend'] == True)
-                                out.write(f"{name} = sextract{cs}({name}, 0, {s});\n")
+                                out.write(f"{name} = sextract{cs}({name}, 0, {var_size});\n")
                             if 'left_shift' in v:
                                 out.write(f"{name} <<= {v['left_shift']};\n")
                             print_info[name] = ('imm', 0, False)
@@ -1242,9 +1262,11 @@ def main():
                             call_args.append(str(i+1));
 
                         if 'not' in v:
+                            not_strs = []
                             not_values = v['not'] if isinstance(v['not'], list) else [v['not']]
                             for n in not_values:
-                                out.write(f'klee_assume({name} != {n});\n')
+                                not_strs.append(f'({name} != {n})')
+                            out.write(f'klee_assume({" && ".join(not_strs)});\n')
 
                     for i,v in enumerate(variables):
                         name = v['name']
@@ -1268,13 +1290,12 @@ def main():
                         if is_output and kind == 'reg':
                             out.write(f'printf("    out: %u\\n", cpu.X[{offset}].value);\n')
 
-
                     out.write(f'printf("  overflow: %u\\n", overflow);\n')
                     out.write(f'printf("  underflow: %u\\n", underflow);\n')
                     out.write('if (has_jump) {\n')
                     out.write(f'    printf("  has_jump:\\n");\n')
-                    out.write(f'    printf("  - valid_test_jump: %u\\n", has_valid_test_jump);\n')
-                    out.write(f'    printf("  - jump_pc_offset: %u\\n", jump_pc_offset);\n')
+                    out.write(f'    printf("    valid_test_jump: %u\\n", has_valid_test_jump);\n')
+                    out.write(f'    printf("    jump_pc_offset: %u\\n", jump_pc_offset);\n')
                     out.write('}\n')
                     out.write(f"return 0;\n")
                     out.write('}\n')
