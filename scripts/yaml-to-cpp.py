@@ -13,6 +13,9 @@ re_comment_find    = re.compile(r".*#.*$")
 re_comment_replace = re.compile(r"")
 
 str_includes = """
+struct RISCVCPU;
+typedef struct RISCVCPU RISCVCPU;
+
 #include <stdint.h>
 #include <stddef.h>
 #include <initializer_list>
@@ -51,19 +54,70 @@ str_memory_funcs_klee = """
 #include <assert.h>
 
 static bool has_jump = false;
+static bool has_store = false;
+static bool has_load = false;
 static bool has_valid_test_jump = false;
+static bool has_valid_test_memop = false;
 static int jump_pc_offset = 0;
-static std::unordered_map<uint32_t, uint32_t> memory;
+static std::unordered_map<uint32_t, uint32_t> wmemory;
+static std::unordered_map<uint32_t, uint32_t> rmemory;
+static const uint32_t read_pattern = 0x12345678;
+static uint32_t number_of_reads = 0;
 
 template<int N> void write_memory(XReg va, XReg value, uint32_t encoding = 0);
-template<> void write_memory<8>(XReg va, XReg value, uint32_t encoding)  { memory[va.value] = value.value & 0xff; }
-template<> void write_memory<16>(XReg va, XReg value, uint32_t encoding) { memory[va.value] = value.value & 0xffff; }
-template<> void write_memory<32>(XReg va, XReg value, uint32_t encoding) { memory[va.value] = value.value & 0xffffffff;}
+template<> void write_memory<8>(XReg va, XReg value, uint32_t encoding)  {
+    has_store = true;
+    if (va.value >= 0x1000 && va.value < 0x2000 && value.value != 0) {
+        has_valid_test_memop = true;
+        wmemory[va.value] = value.value & 0xff;
+    }
+}
+template<> void write_memory<16>(XReg va, XReg value, uint32_t encoding) {
+    has_store = true;
+    if (va.value >= 0x1000 && va.value < 0x2000 && value.value != 0) {
+        has_valid_test_memop = true;
+        wmemory[va.value] = value.value & 0xffff;
+    }
+}
+template<> void write_memory<32>(XReg va, XReg value, uint32_t encoding) {
+    has_store = true;
+    if (va.value >= 0x1000 && va.value < 0x2000 && value.value != 0) {
+        has_valid_test_memop = true;
+        wmemory[va.value] = value.value & 0xffffffff;
+    }
+}
 
 template<int N> XReg read_memory(XReg va, uint32_t encoding = 0);
-template<> XReg read_memory<8>(XReg va, uint32_t encoding)  { return memory[va.value]; }
-template<> XReg read_memory<16>(XReg va, uint32_t encoding) { return memory[va.value]; }
-template<> XReg read_memory<32>(XReg va, uint32_t encoding) { return memory[va.value]; }
+template<> XReg read_memory<8>(XReg va, uint32_t encoding)  {
+    has_load = true;
+    ++number_of_reads;
+    uint32_t value = number_of_reads*read_pattern;
+    if (va.value >= 0x1000 && va.value < 0x2000) {
+        has_valid_test_memop = true;
+        rmemory[va.value] = value & 0xff;
+    }
+    return rmemory[va.value];
+}
+template<> XReg read_memory<16>(XReg va, uint32_t encoding)  {
+    has_load = true;
+    ++number_of_reads;
+    uint32_t value = number_of_reads*read_pattern;
+    if (va.value >= 0x1000 && va.value < 0x2000) {
+        has_valid_test_memop = true;
+        rmemory[va.value] = value & 0xffff;
+    }
+    return rmemory[va.value];
+}
+template<> XReg read_memory<32>(XReg va, uint32_t encoding)  {
+    has_load = true;
+    ++number_of_reads;
+    uint32_t value = number_of_reads*read_pattern;
+    if (va.value >= 0x1000 && va.value < 0x2000) {
+        has_valid_test_memop = true;
+        rmemory[va.value] = value & 0xffffffff;
+    }
+    return rmemory[va.value];
+}
 
 void xqci_jump_pcrel(XReg pc, int imm) {
     has_jump = true;
@@ -71,6 +125,18 @@ void xqci_jump_pcrel(XReg pc, int imm) {
     if (imm == INST_SIZE + 4) {
         has_valid_test_jump = true;
     }
+}
+
+struct CPUArchState;
+
+int32_t xqci_csrr(CPUArchState *, int32_t csrno) {
+    return 0;
+}
+
+void xqci_csrw(CPUArchState *, int32_t csrno, int32_t csrw) {
+}
+
+void xqci_csrw_field(CPUArchState *, int32_t csrno, int32_t field, int32_t value) {
 }
 
 #define DEF_SEXTRACT(size)                                                                      \
@@ -196,6 +262,14 @@ struct __attribute__((packed)) Bits {
         return value != 0;
     }
 
+    explicit operator int32_t() const {
+        return value;
+    }
+
+    explicit operator uint32_t() const {
+        return value;
+    }
+
     uint32_t operator[](size_t i) {
         return (value >> i) & 1;
     }
@@ -209,6 +283,7 @@ struct __attribute__((packed)) Bits {
         return XRegRange((value & mask) >> b, e-b+1);
     }
 };
+
 
 using XReg = Bits<32>;
 using U32 = Bits<32>;
@@ -224,41 +299,91 @@ uint32_t highest_set_bit(const XReg &i) {
 uint32_t lowest_set_bit(const XReg &i) {
     return 1 + __builtin_ctz(i.value);
 }
+"""
 
-struct CSRReg {
-    uint32_t value;
-    uint32_t NMI;
-    uint32_t MIE;
-    uint32_t MPIE;
-    uint32_t MPP;
-    uint32_t MPRV;
-
-    CSRReg(uint32_t value = 0) : value(value) {}
-
-    explicit operator bool() const {
-        return value != 0;
-    }
-
-    uint32_t operator[](size_t i) {
-        return (value >> i) & 1;
-    }
-
-    Bits<12> address() {
-        return {value};
-    }
-
-    XReg sw_read() {
-        return XReg(value);
-    }
-
-    void sw_write(XReg reg) {
-        value = reg.value;
-    }
-};
+decls = """
+struct CPUArchState;
 
 __attribute__((annotate ("immediate: 1")))
 void xqci_jump_pcrel(XReg pc, int imm);
 
+__attribute__((annotate ("immediate: 1")))
+int32_t xqci_csrr(CPUArchState *, int32_t csrno);
+
+__attribute__((annotate ("immediate: 1")))
+void xqci_csrw(CPUArchState *, int32_t csrno, int32_t csrw);
+
+__attribute__((annotate ("immediate: 1,2,3")))
+void xqci_csrw_field(CPUArchState *, int32_t csrno, int32_t field, int32_t value);
+
+__attribute__((annotate ("immediate: 0")))
+__attribute__((pure))
+uint32_t xqci_get_gpr(int32_t i);
+
+int32_t xqci_csrr_xreg(CPUArchState *env, XReg csrno) {
+    return xqci_csrr(env, csrno.value);
+}
+
+void xqci_csrw_xreg(CPUArchState *env, XReg csrno, XReg csrw) {
+    xqci_csrw(env, csrno.value, csrw.value);
+}
+
+__attribute__((pure))
+uint32_t xqci_get_gpr_xreg(XReg csrno) {
+    return xqci_get_gpr(csrno.value);
+}
+
+void xqci_csrw_field_xreg(CPUArchState *env, int32_t csrno, int32_t field, XReg value) {
+    return xqci_csrw_field(env, csrno, field, value.value);
+}
+"""
+
+decls_klee = """
+struct CPUArchState;
+
+__attribute__((annotate ("immediate: 1")))
+void xqci_jump_pcrel(XReg pc, int imm);
+
+__attribute__((annotate ("immediate: 1")))
+int32_t xqci_csrr(CPUArchState *, int32_t csrno);
+
+__attribute__((annotate ("immediate: 1")))
+void xqci_csrw(CPUArchState *, int32_t csrno, int32_t csrw);
+
+__attribute__((annotate ("immediate: 1,2,3")))
+void xqci_csrw_field(CPUArchState *env, int32_t csrno, int32_t field, int32_t value);
+
+int32_t xqci_csrr_xreg(CPUArchState *env, XReg csrno) {
+    return xqci_csrr(env, csrno.value);
+}
+
+void xqci_csrw_xreg(CPUArchState *env, XReg csrno, XReg csrw) {
+    xqci_csrw(env, csrno.value, csrw.value);
+}
+
+void xqci_csrw_field_xreg(CPUArchState *env, int32_t csrno, int32_t field, XReg value) {
+    return xqci_csrw_field(env, csrno, field, value.value);
+}
+"""
+
+
+str_xregset = """
+struct XRegSet {
+    XReg regs[32];
+
+    XRegSet() {}
+
+    XReg operator[](size_t i) {
+        return xqci_get_gpr(i);
+    }
+
+    XReg operator[](XReg reg) {
+        return xqci_get_gpr(reg.value);
+    }
+};
+"""
+
+str_xregset_klee = """
 struct XRegSet {
     XReg regs[32];
 
@@ -272,21 +397,8 @@ struct XRegSet {
         return regs[reg.value];
     }
 };
-
-struct CSRRegSet {
-    CSRReg regs[32];
-
-    CSRRegSet() {}
-
-    CSRReg &operator[](size_t i) {
-        return regs[i];
-    }
-
-    CSRReg &operator[](XReg reg) {
-        return regs[reg.value];
-    }
-};
 """
+
 
 str_operators = """
 XReg operator^(const XReg &a, const XReg &b) { return XReg(a.value ^ b.value); }
@@ -369,46 +481,12 @@ bool operator!=(const XReg &a, const XReg &b) { return a.value != b.value; }
 """
 
 preamble = """
-enum class PrivilegeMode {
-    S, U, M
-};
-
-enum class ExtensionName {
-    S, U
-};
-
-void set_mode(const PrivilegeMode m) {
-}
-
-bool implemented(const ExtensionName n) {
-    return true;
-}
-
 struct CPUArchState {
-    static constexpr uint32_t qc_mclicie0 = 0;
-    static constexpr uint32_t qc_mclicie1 = 1;
-    static constexpr uint32_t qc_mclicie2 = 2;
-    static constexpr uint32_t qc_mclicie3 = 3;
-    static constexpr uint32_t qc_mclicie4 = 4;
-    static constexpr uint32_t qc_mclicie5 = 5;
-    static constexpr uint32_t qc_mclicie6 = 6;
-    static constexpr uint32_t qc_mclicie7 = 7;
-    static constexpr uint32_t qc_mclicip0 = 8;
-    static constexpr uint32_t qc_mclicip1 = 9;
-    static constexpr uint32_t qc_mclicip2 = 10;
-    static constexpr uint32_t qc_mclicip3 = 11;
-    static constexpr uint32_t qc_mclicip4 = 12;
-    static constexpr uint32_t qc_mclicip5 = 13;
-    static constexpr uint32_t qc_mclicip6 = 14;
-    static constexpr uint32_t qc_mclicip7 = 15;
-    static constexpr uint32_t mstatus  = 16;
-    static constexpr uint32_t mcause   = 17;
-    static constexpr uint32_t mncause  = 18;
-    static constexpr uint32_t mepc     = 19;
-    static constexpr uint32_t qc_mnepc    = 20;
-    static constexpr uint32_t qc_flags    = 21;
-
     static constexpr uint32_t XLEN     = 32;
+
+    uint32_t creg2reg(uint32_t index) {
+        return 0b01000 | (index & 0b111);
+    }
 
     template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 1>
     typename std::make_signed<T>::type _signed(T t) {
@@ -422,12 +500,46 @@ struct CPUArchState {
     inline void delay(uint8_t) {
     }
 
+    void xqci_set_gpr_xreg(XReg csrno, XReg csrw) {
+        X.regs[csrno.value] = csrw;
+    }
+
     XRegSet X;
     XReg pc;
-    CSRRegSet CSR;
 
     CPUArchState() {}
 """
+
+preamble_klee = """
+struct CPUArchState {
+    static constexpr uint32_t XLEN     = 32;
+
+    uint32_t creg2reg(uint32_t index) {
+        return 0b01000 | (index & 0b111);
+    }
+
+    template<typename T, typename std::enable_if<std::is_integral<T>::value, int>::type = 1>
+    typename std::make_signed<T>::type _signed(T t) {
+        return t;
+    }
+
+    inline int32_t _signed(XReg reg) {
+        return (int32_t) reg.value;
+    }
+
+    inline void delay(uint8_t) {
+    }
+
+    void xqci_set_gpr_xreg(XReg csrno, XReg csrw) {
+        X.regs[csrno.value] = csrw;
+    }
+
+    XRegSet X;
+    XReg pc;
+
+    CPUArchState() {}
+"""
+
 
 manual_shlsat = """
 __attribute__((used))
@@ -440,11 +552,14 @@ void qc_shlsat(uint8_t rs1, uint8_t rs2, uint8_t rd) {
     XReg most_positive_number = (1 << (xlen() - 1)) - 1;
     
     if ((int64_t)(shifted_value) < (int64_t)(int32_t)(most_negative_number.value)) {
-      X[rd] = most_negative_number;
+      //X[rd] = most_negative_number;
+      xqci_set_gpr_xreg(rd, most_negative_number);
     } else if ((int64_t)(shifted_value) > (int64_t)(int32_t)(most_positive_number.value)) {
-      X[rd] = most_positive_number;
+      //X[rd] = most_positive_number;
+      xqci_set_gpr_xreg(rd, most_positive_number);
     } else {
-      X[rd] = (uint32_t)shifted_value;
+      //X[rd] = (uint32_t)shifted_value;
+      xqci_set_gpr_xreg(rd, (uint32_t)shifted_value);
     }
 }
 """
@@ -458,9 +573,11 @@ void qc_shlusat(uint8_t rs1, uint8_t rs2, uint8_t rd) {
     XReg largest_unsigned_value = ~0u;
     
     if (shifted_value > largest_unsigned_value.value) {
-      X[rd] = largest_unsigned_value;
+      //X[rd] = largest_unsigned_value;
+      xqci_set_gpr_xreg(rd, largest_unsigned_value);
     } else {
-      X[rd] = (uint32_t)shifted_value;
+      //X[rd] = (uint32_t)shifted_value;
+      xqci_set_gpr_xreg(rd, (uint32_t)shifted_value);
     }
 }
 """
@@ -685,6 +802,49 @@ def emit_switch(f, y, count, defaults, depth):
 
         write_line(f, indent, '}')
 
+def get_csrs(base_csr_dir, xqci_csr_dir):
+    csrs = {}
+    if base_csr_dir:
+        for file in os.listdir(base_csr_dir):
+            if not file.endswith('.yaml'):
+                continue
+            y = common.load_yaml_or_exit(os.path.join(base_csr_dir, file))
+            csrs[y['name']] = y
+    if xqci_csr_dir:
+        for file in os.listdir(xqci_csr_dir):
+            if not file.endswith('.yaml'):
+                continue
+            y = common.load_yaml_or_exit(os.path.join(xqci_csr_dir, file))
+            csrs[y['name']] = y
+    return csrs
+
+def out_csr(out, csrs):
+    for csr in csrs:
+        if csr in {'time'}:
+             continue
+        csr_name = re.sub(r'\.', r'_', csr)
+        out.write(f"const uint32_t {csr_name} = {hex(csrs[csr]['address'])};\n")
+
+    for csr in csrs:
+        csr_name = re.sub(r'\.', r'_', csr)
+        for field in csrs[csr]['fields']:
+            mask = 0
+            if 'location' in csrs[csr]['fields'][field]:
+                loc_str = csrs[csr]['fields'][field]['location']
+                for start,len in common.ranges_in_location(str(loc_str)):
+                    mask |= ((1 << len) - 1) << start
+                out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
+            elif 'location_rv32' in csrs[csr]['fields'][field]:
+                loc_str = csrs[csr]['fields'][field]['location_rv32']
+                for start,len in common.ranges_in_location(str(loc_str)):
+                    mask |= ((1 << len) - 1) << start
+                out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
+            elif 'location_rv64' in csrs[csr]['fields'][field]:
+                loc_str = csrs[csr]['fields'][field]['location_rv64']
+                for start,len in common.ranges_in_location(str(loc_str)):
+                    mask |= ((1 << len) - 1) << start
+                out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
+
 def main():
     parser = argparse.ArgumentParser(
         prog='yaml-to-cpp',
@@ -698,6 +858,8 @@ def main():
     parser.add_argument('--output-klee')
     parser.add_argument('--output-disas')
     parser.add_argument('--input-enabled')
+    parser.add_argument('--xqci-csr-dir')
+    parser.add_argument('--base-csr-dir')
     args = parser.parse_args()
 
     if args.output_trans:
@@ -1124,12 +1286,21 @@ def main():
                     out.write('}\n')
 
     if args.out:
+
+        csrs = get_csrs(args.base_csr_dir, args.xqci_csr_dir)
+
         with open(args.out, 'w') as out:
             out.write(str_includes)
+
+            out_csr(out, csrs)
+
             out.write(str_reg_structs)
+            out.write(decls)
+            out.write(str_xregset)
             out.write(str_operators)
             out.write(str_memory_funcs)
             out.write(preamble)
+
             for op in manual_impls:
                 out.write(manual_impls[op])
             for file in os.listdir(args.file):
@@ -1153,7 +1324,7 @@ def main():
                         out.write(f'__attribute__((annotate ("helper-to-tcg")))\n')
                         out.write(f"void {re.sub(r'\.', r'_', name)}({', '.join(vars)}) {{\n")
                         op = y['operation()']
-                        op = common.op_to_cpp(op)
+                        op = common.op_to_cpp(op, csrs)
                         #for size,bits in re.findall(r"([0-9]+)'b([0-9]+)", op):
                         #    size_rounded = 8*math.floor((Int(size)+8-1)/8)
                         #    print(f"(uint{size}_t) 0b{bits}")
@@ -1165,6 +1336,21 @@ def main():
             out.write(postamble)
 
     if args.output_klee:
+
+        csrs = {}
+        if args.base_csr_dir:
+            for file in os.listdir(args.base_csr_dir):
+                if not file.endswith('.yaml'):
+                    continue
+                y = common.load_yaml_or_exit(os.path.join(args.base_csr_dir, file))
+                csrs[y['name']] = y
+        if args.xqci_csr_dir:
+            for file in os.listdir(args.xqci_csr_dir):
+                if not file.endswith('.yaml'):
+                    continue
+                y = common.load_yaml_or_exit(os.path.join(args.xqci_csr_dir, file))
+                csrs[y['name']] = y
+
         for file in os.listdir(args.file):
             if not should_translate(file) and file not in manual_impls:
                 continue
@@ -1189,11 +1375,16 @@ def main():
                 with open(klee_file, 'w') as out:
                     out.write('#include <klee/klee.h>')
                     out.write(str_includes)
+
+                    out_csr(out, csrs)
+
                     out.write(str_reg_structs)
+                    out.write(decls_klee)
+                    out.write(str_xregset_klee)
                     out.write(str_klee_operators)
                     out.write(f'#define INST_SIZE {int(len(y['encoding']['match'])/8)}')
                     out.write(str_memory_funcs_klee)
-                    out.write(preamble)
+                    out.write(preamble_klee)
 
                     vars = []
                     var_names = []
@@ -1210,7 +1401,7 @@ def main():
                     else:
                         out.write(f"void {re.sub(r'\.', r'_', name)}({', '.join(vars)}) {{\n")
                         op = y['operation()']
-                        op = common.op_to_cpp(op)
+                        op = common.op_to_cpp(op, csrs, True)
                         out.write(op)
                         out.write('}\n')
 
@@ -1296,6 +1487,22 @@ def main():
                     out.write(f'    printf("  has_jump:\\n");\n')
                     out.write(f'    printf("    valid_test_jump: %u\\n", has_valid_test_jump);\n')
                     out.write(f'    printf("    jump_pc_offset: %u\\n", jump_pc_offset);\n')
+                    out.write('}\n')
+                    out.write('if (has_load) {\n')
+                    out.write('    printf("  has_valid_test_memop: %u\\n", has_valid_test_memop);\n')
+                    out.write('    printf("  has_load:\\n");\n')
+                    out.write('    for (auto &P : rmemory) {\n')
+                    out.write('        printf("  - address: %u\\n", P.first);\n')
+                    out.write('        printf("    value: %u\\n", P.second);\n')
+                    out.write('    }\n')
+                    out.write('}\n')
+                    out.write('if (has_store) {\n')
+                    out.write('    printf("  has_valid_test_memop: %u\\n", has_valid_test_memop);\n')
+                    out.write('    printf("  has_store:\\n");\n')
+                    out.write('    for (auto &P : wmemory) {\n')
+                    out.write('        printf("  - address: %u\\n", P.first);\n')
+                    out.write('        printf("    value: %u\\n", P.second);\n')
+                    out.write('    }\n')
                     out.write('}\n')
                     out.write(f"return 0;\n")
                     out.write('}\n')

@@ -3,6 +3,7 @@
 import common
 import argparse
 import os
+import re
 
 def main():
     parser = argparse.ArgumentParser(
@@ -71,23 +72,24 @@ def main():
 
         # TODO handling of rv32 rv64 not correct
         for csr in csrs:
+            csr_name = re.sub(r'\.', r'_', csr)
             for field in csrs[csr]['fields']:
                 mask = 0
                 if 'location' in csrs[csr]['fields'][field]:
                     loc_str = csrs[csr]['fields'][field]['location']
                     for start,len in common.ranges_in_location(str(loc_str)):
                         mask |= ((1 << len) - 1) << start
-                    out.write(f"#define {csr.upper()}_{field} {hex(mask)}\n")
+                    out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
                 elif 'location_rv32' in csrs[csr]['fields'][field]:
                     loc_str = csrs[csr]['fields'][field]['location_rv32']
                     for start,len in common.ranges_in_location(str(loc_str)):
                         mask |= ((1 << len) - 1) << start
-                    out.write(f"#define {csr.upper()}_{field} {hex(mask)}\n")
+                    out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
                 elif 'location_rv64' in csrs[csr]['fields'][field]:
                     loc_str = csrs[csr]['fields'][field]['location_rv64']
                     for start,len in common.ranges_in_location(str(loc_str)):
                         mask |= ((1 << len) - 1) << start
-                    out.write(f"#define {csr.upper()}_{field} {hex(mask)}\n")
+                    out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
 
         out.write('void qc_iu_register_custom_csrs(RISCVCPU *cpu);\n')
 
