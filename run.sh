@@ -2,14 +2,17 @@
 
 clangpp=$1
 klee=$2
-inst_dir=$3
-csr_dir=$4
-llvm_config=$5
+rudb_dir=$3
+llvm_config=$4
 klee_bc=build/klee/bc
 klee_out=build/klee/out
 klee_exes=build/klee/exes
 klee_io=build/klee/io
 klee_tests=build/klee/tests
+klee_tests=build/klee/tests
+xqci_inst_dir=${rudb_dir}/arch_overlay/qc_iu/inst/Xqci
+xqci_csr_dir=${rudb_dir}/arch_overlay/qc_iu/csr/Xqci
+base_csr_dir=${rudb_dir}/arch/csr
 
 [ ! -d build ] && mkdir build
 [ ! -d build/klee ] && mkdir build/klee
@@ -25,7 +28,12 @@ sh build-helper-to-tcg.sh $llvm_config
 echo "Generating:"
 echo "  - helper-to-tcg cpp input"
 python scripts/yaml-to-cpp.py \
-    -o build/xqciu.cpp ${inst_dir}
+    --xqci-csr-dir ${xqci_csr_dir} \
+    --base-csr-dir ${base_csr_dir} \
+    -o build/xqciu.cpp ${xqci_inst_dir}
+
+echo "Building CSR fields"
+./scripts/csr.py --inst-dir=${xqci_inst_dir} --csr-dir=${xqci_csr_dir} --out-c=build/xqciu_csr.c --out-h=build/xqciu_csr.h
 
 echo "Compiling helper-to-tcg input -> .ll"
 $clangpp build/xqciu.cpp -emit-llvm -c -g -O3 -I include -o build/xqciu.ll
@@ -53,7 +61,9 @@ python scripts/yaml-to-cpp.py \
     --output-decode-extra-functions build/xqciu-decode-extra \
     --output-disas build/riscv-xqci \
     --input-enabled build/xqciu_tcg.h \
-    ${inst_dir}
+    --xqci-csr-dir ${xqci_csr_dir} \
+    --base-csr-dir ${base_csr_dir} \
+    ${xqci_inst_dir}
 
 echo "Running klee"
 for file in build/klee/*.cpp; do
@@ -62,7 +72,7 @@ for file in build/klee/*.cpp; do
 
     echo "  ${basename}"
     echo "    - Compiling klee .cpp input -> .bc"
-    $clangpp $file -emit-llvm -c -g -O0 -Xclang -disable-O0-optnone -I include -o ${klee_bc}/${basename}.bc
+    $clangpp $file -emit-llvm -c -g -O0 -Xclang -disable-O0-optnone -I include -I build -o ${klee_bc}/${basename}.bc
 
     echo "    - Running klee"
     $klee --external-calls=all \
@@ -75,20 +85,17 @@ for file in build/klee/*.cpp; do
           &> build/klee-out
 
     echo "    - Compiling test executable"
-    $clangpp $file -lkleeRuntest -I include -o ${klee_exes}/${basename}
+    $clangpp $file -lkleeRuntest -I include -I build -o ${klee_exes}/${basename}
 
     for test in ${klee_out}/${basename}/*.ktest; do
         echo "    - Collecting test ${test}"
         KTEST_FILE=$test ./${klee_exes}/${basename} >> ${klee_io}/${basename}
     done
-
-    echo "    - Assembling test ${klee_io}/${basename}"
-    python scripts/assemble.py --inst-dir ${inst_dir} --inst-name ${basename} --io-file ${klee_io}/${basename} --out ${klee_tests}/${basename}
-    chmod +x ${klee_tests}/${basename}-*
 done
+
+echo "Assembling tests"
+sh assemble-tests.sh ${xqci_inst_dir}
 
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_16_impl' build/xqciu-16.decode --insnwidth=16 > build/riscv-xqci-16-decode.c.inc
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_32_impl' build/xqciu-32.decode --insnwidth=32 > build/riscv-xqci-32-decode.c.inc
 ./scripts/decodetree-disas.py --static-decode='decode_xqci_48_impl' build/xqciu-48.decode --varinsnwidth=64 > build/riscv-xqci-48-decode.c.inc
-
-./scripts/csr.py --inst-dir=${inst_dir} --csr-dir=${csr_dir} --out-c=build/xqciu_csr.c --out-h=build/xqciu_csr.h
