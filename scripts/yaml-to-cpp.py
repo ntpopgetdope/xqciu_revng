@@ -289,7 +289,11 @@ using XReg = Bits<32>;
 using U32 = Bits<32>;
 
 uint32_t sext(const XReg &i, const XReg len) {
-    return ((int32_t) (i.value << (32-len.value))) >> (32-len.value);
+    if (len.value == xlen()) {
+        return i.value;
+    } else {
+        return ((int32_t) (i.value << (32-len.value))) >> (32-len.value);
+    }
 }
 
 uint32_t highest_set_bit(const XReg &i) {
@@ -746,12 +750,6 @@ def round_to_power_of_two(x):
 def bit_to_c_size(x):
     return min(max(round_to_power_of_two(x), 8), 64)
 
-def var_size_from_location(loc_str):
-    sum = 0
-    for _,length in common.ranges_in_location(loc_str):
-        sum += length
-    return sum
-
 def find_var_by_loc(y, loc):
     if 'variables' in y:
         for v in y['variables']:
@@ -805,13 +803,13 @@ def emit_switch(f, y, count, defaults, depth):
 def get_csrs(base_csr_dir, xqci_csr_dir):
     csrs = {}
     if base_csr_dir:
-        for file in os.listdir(base_csr_dir):
+        for file in sorted(os.listdir(base_csr_dir)):
             if not file.endswith('.yaml'):
                 continue
             y = common.load_yaml_or_exit(os.path.join(base_csr_dir, file))
             csrs[y['name']] = y
     if xqci_csr_dir:
-        for file in os.listdir(xqci_csr_dir):
+        for file in sorted(os.listdir(xqci_csr_dir)):
             if not file.endswith('.yaml'):
                 continue
             y = common.load_yaml_or_exit(os.path.join(xqci_csr_dir, file))
@@ -867,7 +865,7 @@ def main():
             translated = ''
             with open(args.input_enabled, 'r') as in_enabled:
                 translated = in_enabled.read()
-            for file in os.listdir(args.file):
+            for file in sorted(os.listdir(args.file)):
                 if not should_translate(file) and not should_decode_only(file):
                     continue
 
@@ -927,7 +925,7 @@ def main():
 
         encoding = {}
         operation = {}
-        for file in os.listdir(args.file):
+        for file in sorted(os.listdir(args.file)):
             if not should_translate(file) and not should_decode_only(file):
                 continue
             with open(os.path.join(args.file, file), 'r') as f:
@@ -1125,7 +1123,7 @@ def main():
 
         if args.output_disas:
             instructions = {}
-            for file in os.listdir(args.file):
+            for file in sorted(os.listdir(args.file)):
                 if not should_translate(file) and not should_decode_only(file):
                     continue
 
@@ -1159,15 +1157,19 @@ def main():
                 out.write('\n')
 
                 out.write("typedef enum {\n")
-                for inst in instructions:
+                for i,inst in enumerate(instructions):
                     y = instructions[inst]
                     variables = y['encoding']['variables'] if 'variables' in y['encoding'] else []
                     op_name = re.sub(r'\.', r'_', y['name'])
-                    out.write(f"    rv_op_{op_name},\n")
+                    if i == 0:
+                        out.write(f"    rv_op_{op_name} = 1,\n")
+                    else:
+                        out.write(f"    rv_op_{op_name},\n")
                 out.write("} rv_xqci_opcode;\n")
                 out.write("\n")
 
-                out.write("const rv_opcode_data xqci_opcode_data[] = {\n")
+                out.write('const rv_opcode_data xqci_opcode_data[] = {\n')
+                out.write('    { "qc.illegal", rv_codec_illegal, rv_fmt_none, NULL, 0, 0, 0 },\n')
                 for inst in instructions:
                     y = instructions[inst]
                     variables = y['encoding']['variables'] if 'variables' in y['encoding'] else []
@@ -1209,11 +1211,14 @@ def main():
                 out.write('    return 0;\n')
                 out.write('}\n')
 
-                out.write("#include \"riscv-xqci-16-decode.c.inc\"\n")
-                out.write("#include \"riscv-xqci-32-decode.c.inc\"\n")
-                out.write("#include \"riscv-xqci-48-decode.c.inc\"\n")
-                out.write("#include \"riscv-xqci-trans.c.inc\"\n")
-                out.write("\n");
+                out.write('#include "riscv-xqci-16-decode.c.inc"\n')
+                out.write('#include "riscv-xqci-32-decode.c.inc"\n')
+                out.write('#pragma GCC diagnostic push\n')
+                out.write('#pragma GCC diagnostic ignored "-Wunused-function"\n')
+                out.write('#include "riscv-xqci-48-decode.c.inc"\n')
+                out.write('#pragma GCC diagnostic pop\n')
+                out.write('#include "riscv-xqci-trans.c.inc"\n')
+                out.write('\n');
 
                 out.write("void decode_xqci(rv_decode *dec, rv_isa isa) {\n")
                 out.write("    rv_inst inst = dec->inst;\n")
@@ -1303,7 +1308,7 @@ def main():
 
             for op in manual_impls:
                 out.write(manual_impls[op])
-            for file in os.listdir(args.file):
+            for file in sorted(os.listdir(args.file)):
                 if not should_translate(file):
                     continue
 
@@ -1313,7 +1318,7 @@ def main():
                         vars = []
                         if 'variables' in y['encoding']:
                             for v in y['encoding']['variables']:
-                                s = var_size_from_location(v['location'])
+                                s = common.var_size_from_location(v['location'])
                                 cs = bit_to_c_size(s)
                                 vars.append(f'uint{cs}_t ' + v['name'])
                         imm_vars = ', '.join([str(i+1) for i in range(0,len(vars))])
@@ -1337,21 +1342,9 @@ def main():
 
     if args.output_klee:
 
-        csrs = {}
-        if args.base_csr_dir:
-            for file in os.listdir(args.base_csr_dir):
-                if not file.endswith('.yaml'):
-                    continue
-                y = common.load_yaml_or_exit(os.path.join(args.base_csr_dir, file))
-                csrs[y['name']] = y
-        if args.xqci_csr_dir:
-            for file in os.listdir(args.xqci_csr_dir):
-                if not file.endswith('.yaml'):
-                    continue
-                y = common.load_yaml_or_exit(os.path.join(args.xqci_csr_dir, file))
-                csrs[y['name']] = y
+        csrs = get_csrs(args.base_csr_dir, args.xqci_csr_dir)
 
-        for file in os.listdir(args.file):
+        for file in sorted(os.listdir(args.file)):
             if not should_translate(file) and file not in manual_impls:
                 continue
             klee_file = os.path.join(args.output_klee, os.path.splitext(file)[0]) + '.cpp'
@@ -1390,7 +1383,7 @@ def main():
                     var_names = []
                     if 'variables' in y['encoding']:
                         for v in y['encoding']['variables']:
-                            s = var_size_from_location(v['location'])
+                            s = common.var_size_from_location(v['location'])
                             cs = bit_to_c_size(s)
                             vars.append(f'uint{cs}_t ' + v['name'])
                             var_names.append(v['name'])
@@ -1412,19 +1405,17 @@ def main():
                     call_args = []
                     print_statements = []
                     result_print_statements = []
-                    is_compressed = common.inst_is_compressed(y)
                     variables = common.variables(y)
                     print_info = {}
+                    op = y['operation()']
                     for i,v in enumerate(variables):
                         name = v['name']
 
-                        is_imm = common.var_is_imm(y['operation()'], name)
+                        is_imm = common.var_is_imm(op, name)
 
-                        var_size = var_size_from_location(v['location']) if is_imm else 32
+                        var_size = common.var_size_from_location(v['location']) if is_imm else 32
                         cs = bit_to_c_size(var_size) if is_imm else 32
                         out.write(f'uint{cs}_t {name};\n')
-                        if var_size < 32 or var_size > 32 and var_size < 64:
-                            out.write(f'{name} &= (1ul << {var_size})-1;\n')
 
                         if is_imm:
                             out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
@@ -1438,7 +1429,7 @@ def main():
 
                         elif not 'rd' in name:
                             out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
-                            compressed_offset = 8 if is_compressed else 0
+                            compressed_offset = 8 if common.var_is_compressed(op, name) else 0
                             offset = i+1+compressed_offset
                             print_info[name] = ('reg', offset, False)
                             out.write(f'cpu.X[{offset}] = {name};\n')
@@ -1446,7 +1437,7 @@ def main():
 
                         else:
                             out.write(f'klee_make_symbolic(&{name}, sizeof({name}), "{name}");\n')
-                            compressed_offset = 8 if is_compressed else 0
+                            compressed_offset = 8 if common.var_is_compressed(op, name) else 0
                             offset = i+1+compressed_offset
                             print_info[name] = ('reg', offset, True)
                             out.write(f'cpu.X[{offset}] = {name};\n')
@@ -1462,9 +1453,9 @@ def main():
                     for i,v in enumerate(variables):
                         name = v['name']
                         is_imm = common.var_is_imm(y['operation()'], name)
-                        var_size = var_size_from_location(v['location']) if is_imm else 32
+                        var_size = common.var_size_from_location(v['location']) if is_imm else 32
                         if var_size < 32 or var_size > 32 and var_size < 64:
-                            out.write(f'{name} &= (1ul << {var_size})-1;\n')
+                            out.write(f'klee_assume({name} <= ((1ul << {var_size})-1));\n')
 
                     out.write(f"cpu.{op_name}({', '.join(call_args)}")
                     out.write(');\n')

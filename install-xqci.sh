@@ -25,4 +25,5 @@ rm -r submodules/xqci/tests/tcg/riscv32/Xqci
 cp -r build/klee/io submodules/xqci/tests/tcg/riscv32/klee_io
 cp -r submodules/riscv-unified-db/arch_overlay/qc_iu/inst/Xqci/ submodules/xqci/tests/tcg/riscv32/
 cp scripts/assemble.py submodules/xqci/tests/tcg/riscv32/
+cp scripts/c.py submodules/xqci/tests/tcg/riscv32/
 cp scripts/common.py submodules/xqci/tests/tcg/riscv32/

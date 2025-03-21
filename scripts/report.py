@@ -45,7 +45,7 @@ def main():
 
         instructions = {}
         manual_tcg_impl = set()
-        for file in os.listdir(args.inst_dir):
+        for file in sorted(os.listdir(args.inst_dir)):
             with open(os.path.join(args.inst_dir, file), 'r') as f:
                 try:
                     y = yaml.safe_load(f)

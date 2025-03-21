@@ -18,7 +18,6 @@ cd ${build_qemu} && ${qemu}/configure \
     --disable-gnutls \
     --disable-cap-ng \
     --disable-capstone \
-    --disable-werror \
     -Dvhost_user=disabled \
     -Dxkbcommon=disabled \
     && make -j8

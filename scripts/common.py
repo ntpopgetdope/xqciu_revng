@@ -32,8 +32,21 @@ def ranges_in_location(loc_str):
         else:
             yield (int(r), 1)
 
+def var_is_compressed(op, name):
+    return f'X[{name}+8]' in op or \
+           f'creg2reg({name})' in op
+
 def var_is_imm(op, name):
-    return f'X[{name}]' not in op and f'X[{name}+8]' not in op
+    return f'X[{name}]' not in op and \
+           f'X[{name}+8]' not in op and \
+           f'creg2reg({name})' not in op and \
+           f'creg2reg({name}+8)' not in op 
+
+def var_size_from_location(loc_str):
+    sum = 0
+    for _,length in ranges_in_location(loc_str):
+        sum += length
+    return sum
 
 def inst_is_compressed(y):
     return '.c.' in y['name']

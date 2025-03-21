@@ -17,21 +17,22 @@ def main():
     args = parser.parse_args()
 
     # Print instructions which touch CSR
-    for file in os.listdir(args.inst_dir):
+    for file in sorted(os.listdir(args.inst_dir)):
         y = common.load_yaml_or_exit(os.path.join(args.inst_dir, file))
         if 'CSR' in y['operation()']:
             print(f"{y['name']}")
             #print(y['operation()'])
 
     csrs = {}
-    for file in os.listdir(args.csr_dir):
+    for file in sorted(os.listdir(args.csr_dir)):
         if not file.endswith('.yaml'):
             continue
         y = common.load_yaml_or_exit(os.path.join(args.csr_dir, file))
         csrs[y['name']] = y
 
     for csr in csrs:
-        print(csr)
+        csr_name = re.sub(r'\.', r'_', csr)
+        print(csr_name)
 
     with open(args.out_c, 'w') as out:
         out.write('#include "qemu/osdep.h"\n')
@@ -47,28 +48,31 @@ def main():
         out.write('\n')
 
         for csr in csrs:
-            out.write(f"static RISCVException read_{csr}(CPURISCVState *env, int csrno, target_ulong *val)\n")
+            csr_name = re.sub(r'\.', r'_', csr)
+            out.write(f"static RISCVException read_{csr_name}(CPURISCVState *env, int csrno, target_ulong *val)\n")
             out.write("{\n")
-            out.write(f"    *val = env->{csr};\n")
+            out.write(f"    *val = env->{csr_name};\n")
             out.write("    return RISCV_EXCP_NONE;\n")
             out.write("}\n")
 
-            out.write(f"static RISCVException write_{csr}(CPURISCVState *env, int csrno, target_ulong val)\n")
+            out.write(f"static RISCVException write_{csr_name}(CPURISCVState *env, int csrno, target_ulong val)\n")
             out.write("{\n")
-            out.write(f"    env->{csr} = val;\n")
+            out.write(f"    env->{csr_name} = val;\n")
             out.write("    return RISCV_EXCP_NONE;\n")
             out.write("}\n")
 
         out.write('void qc_iu_register_custom_csrs(RISCVCPU *cpu)\n')
         out.write('{\n')
         for csr in csrs:
-            out.write(f"    riscv_set_csr_ops(CSR_{csr.upper()}, &(riscv_csr_operations){{\"{csr}\", any, read_{csr}, write_{csr}}});\n")
+            csr_name = re.sub(r'\.', r'_', csr)
+            out.write(f"    riscv_set_csr_ops(CSR_{csr_name.upper()}, &(riscv_csr_operations){{\"{csr_name}\", any, read_{csr_name}, write_{csr_name}}});\n")
         out.write('}\n')
 
     with open(args.out_h, 'w') as out:
         out.write('\n')
         for csr in csrs:
-            out.write(f"#define CSR_{csr.upper()} {hex(csrs[csr]['address'])}\n")
+            csr_name = re.sub(r'\.', r'_', csr)
+            out.write(f"#define CSR_{csr_name.upper()} {hex(csrs[csr]['address'])}\n")
 
         # TODO handling of rv32 rv64 not correct
         for csr in csrs:
