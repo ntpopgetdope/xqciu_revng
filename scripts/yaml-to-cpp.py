@@ -884,6 +884,11 @@ def main():
                              out.write('    return false;\n')
                              out.write('#else\n')
 
+                        #out.write('REQUIRE_32BIT(ctx);\n')
+                        out.write('#ifndef TARGET_RISCV32\n')
+                        out.write('    return false;\n')
+                        out.write('#else\n')
+
                         str_args = []
                         if 'variables' in y['encoding']:
                             str_args = [f"arg->{v['name']}" for v in y['encoding']['variables']]
@@ -907,6 +912,8 @@ def main():
                             out.write('    gen_goto_tb(ctx, 0, ctx->cur_insn_len);\n');
 
                         out.write('    return true;\n')
+
+                        out.write('#endif\n')
 
                         if name in common.system_only:
                              out.write('#endif\n')
