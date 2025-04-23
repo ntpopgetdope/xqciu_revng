@@ -38,6 +38,9 @@ void cpu_stw_le_data(CPUArchState *env, abi_ptr ptr, uint32_t val);
 void cpu_stl_le_data(CPUArchState *env, abi_ptr ptr, uint32_t val);
 void cpu_stq_le_data(CPUArchState *env, abi_ptr ptr, uint64_t val);
 
+#define read_memory_xlen read_memory<32>
+#define write_memory_xlen write_memory<32>
+
 template<int N> void write_memory(XReg va, XReg value, uint32_t encoding = 0);
 template<> void write_memory<8>(XReg va, XReg value, uint32_t encoding)  { cpu_stb_data(NULL, va.value, value.value); }
 template<> void write_memory<16>(XReg va, XReg value, uint32_t encoding) { cpu_stw_le_data(NULL, va.value, value.value); }
@@ -47,6 +50,26 @@ template<int N> XReg read_memory(XReg va, uint32_t encoding = 0);
 template<> XReg read_memory<8>(XReg va, uint32_t encoding)  { return cpu_ldub_data(NULL, va.value); }
 template<> XReg read_memory<16>(XReg va, uint32_t encoding) { return cpu_lduw_le_data(NULL, va.value); }
 template<> XReg read_memory<32>(XReg va, uint32_t encoding) { return cpu_ldl_le_data(NULL, va.value); }
+
+void xqci_raise_IllegalInstruction();
+__attribute__((annotate ("immediate: 1")))
+XReg ann_get_and_validate_stack_pointer(XReg, int32_t) {}
+XReg get_and_validate_stack_pointer(XReg, int32_t);
+void xqci_set_mode_M();
+void xqci_set_mode_S();
+void xqci_set_mode_U();
+bool xqci_implemented_U();
+bool xqci_implemented_S();
+bool xqci_implemented_Xqccmp();
+bool xqci_implemented_Zcmp();
+__attribute__((annotate ("immediate: 0")))
+void ann_xqci_syscall(int32_t func, int32_t arg) {}
+void xqci_syscall(int32_t func, int32_t arg);
+
+static void iss_syscall(XReg a, XReg b) {
+    xqci_syscall(a.value, b.value);
+}
+
 """
 
 str_memory_funcs_klee = """
@@ -63,6 +86,9 @@ static std::unordered_map<uint32_t, uint32_t> wmemory;
 static std::unordered_map<uint32_t, uint32_t> rmemory;
 static const uint32_t read_pattern = 0x12345678;
 static uint32_t number_of_reads = 0;
+
+#define read_memory_xlen read_memory<32>
+#define write_memory_xlen write_memory<32>
 
 template<int N> void write_memory(XReg va, XReg value, uint32_t encoding = 0);
 template<> void write_memory<8>(XReg va, XReg value, uint32_t encoding)  {
@@ -150,6 +176,21 @@ DEF_SEXTRACT(8)
 DEF_SEXTRACT(16)
 DEF_SEXTRACT(32)
 DEF_SEXTRACT(64)
+
+void xqci_raise_IllegalInstruction() {}
+XReg get_and_validate_stack_pointer(XReg a, int32_t i) {return a;}
+void xqci_set_mode_M() {}
+void xqci_set_mode_S() {}
+void xqci_set_mode_U() {}
+bool xqci_implemented_U()  {return true;}
+bool xqci_implemented_S() {return true;}
+bool xqci_implemented_Xqccmp() {return true;}
+bool xqci_implemented_Zcmp() {return true;}
+void xqci_syscall(int a, int b) {}
+
+static void iss_syscall(XReg a, XReg b) {
+    xqci_syscall(a.value, b.value);
+}
 
 """
 
@@ -309,19 +350,23 @@ decls = """
 struct CPUArchState;
 
 __attribute__((annotate ("immediate: 1")))
+void ann_xqci_jump_pcrel(XReg pc, int imm) {}
 void xqci_jump_pcrel(XReg pc, int imm);
 
 __attribute__((annotate ("immediate: 1")))
+int32_t ann_xqci_csrr(CPUArchState *, int32_t csrno) {}
 int32_t xqci_csrr(CPUArchState *, int32_t csrno);
 
 __attribute__((annotate ("immediate: 1")))
+void ann_xqci_csrw(CPUArchState *, int32_t csrno, int32_t csrw) {}
 void xqci_csrw(CPUArchState *, int32_t csrno, int32_t csrw);
 
-__attribute__((annotate ("immediate: 1,2,3")))
+__attribute__((annotate ("immediate: 1,2")))
+void ann_xqci_csrw_field(CPUArchState *, int32_t csrno, int32_t field, int32_t value) {}
 void xqci_csrw_field(CPUArchState *, int32_t csrno, int32_t field, int32_t value);
 
 __attribute__((annotate ("immediate: 0")))
-__attribute__((pure))
+uint32_t ann_xqci_get_gpr(int32_t i) {return 0;}
 uint32_t xqci_get_gpr(int32_t i);
 
 int32_t xqci_csrr_xreg(CPUArchState *env, XReg csrno) {
@@ -544,51 +589,7 @@ struct CPUArchState {
     CPUArchState() {}
 """
 
-
-manual_shlsat = """
-__attribute__((used))
-__attribute__((annotate ("immediate: 1, 2, 3")))
-__attribute__((annotate ("helper-to-tcg")))
-void qc_shlsat(uint8_t rs1, uint8_t rs2, uint8_t rd) {
-    int64_t sext_double_width_rs1 = ((int64_t)(int32_t)X[rs1].value);
-    int64_t shifted_value = sext_double_width_rs1 << X[rs2].range(0, 4);
-    XReg most_negative_number = 1 << (xlen() - 1);
-    XReg most_positive_number = (1 << (xlen() - 1)) - 1;
-    
-    if ((int64_t)(shifted_value) < (int64_t)(int32_t)(most_negative_number.value)) {
-      //X[rd] = most_negative_number;
-      xqci_set_gpr_xreg(rd, most_negative_number);
-    } else if ((int64_t)(shifted_value) > (int64_t)(int32_t)(most_positive_number.value)) {
-      //X[rd] = most_positive_number;
-      xqci_set_gpr_xreg(rd, most_positive_number);
-    } else {
-      //X[rd] = (uint32_t)shifted_value;
-      xqci_set_gpr_xreg(rd, (uint32_t)shifted_value);
-    }
-}
-"""
-manual_shlusat = """
-__attribute__((used))
-__attribute__((annotate ("immediate: 1, 2, 3")))
-__attribute__((annotate ("helper-to-tcg")))
-void qc_shlusat(uint8_t rs1, uint8_t rs2, uint8_t rd) {
-    int64_t sext_double_width_rs1 = ((int64_t)(int32_t)X[rs1].value);
-    int64_t shifted_value = sext_double_width_rs1 << X[rs2].range(0, 4);
-    XReg largest_unsigned_value = ~0u;
-    
-    if (shifted_value > largest_unsigned_value.value) {
-      //X[rd] = largest_unsigned_value;
-      xqci_set_gpr_xreg(rd, largest_unsigned_value);
-    } else {
-      //X[rd] = (uint32_t)shifted_value;
-      xqci_set_gpr_xreg(rd, (uint32_t)shifted_value);
-    }
-}
-"""
-
 manual_impls = {
-    'qc.shlsat.yaml' : manual_shlsat,
-    'qc.shlusat.yaml' : manual_shlusat
 }
 
 postamble = """
@@ -606,142 +607,40 @@ def should_decode_only(name):
     return name in common.decode_only
 
 def should_translate(name):
-    return name in {
-        'qc.addsat.yaml',
-        'qc.addusat.yaml',
-        'qc.beqi.yaml',
-        'qc.bgei.yaml',
-        'qc.bgeui.yaml',
-        'qc.blti.yaml',
-        'qc.bltui.yaml',
-        'qc.bnei.yaml',
-        #'qc.brev32.yaml',
-        'qc.c.bexti.yaml',
-        'qc.c.bseti.yaml',
-        'qc.c.clrint.yaml',
-        'qc.c.dir.yaml',
-        'qc.c.di.yaml',
-        'qc.c.eir.yaml',
-        'qc.c.ei.yaml',
-        'qc.c.extu.yaml',
-        'qc.clo.yaml',
-        'qc.clrinti.yaml',
-        #'qc.c.mienter.nest.yaml',
-        #'qc.c.mienter.yaml',
-        #'qc.c.mileaveret.yaml',
+    return name not in {
+        'qc.brev32.yaml',
+        'qc.c.mienter.nest.yaml',
+        'qc.c.mienter.yaml',
+        'qc.c.mileaveret.yaml',
         #'qc.c.mnret.yaml',
         #'qc.c.mret.yaml',
-        'qc.c.muliadd.yaml',
-        'qc.muliadd.yaml',
-        'qc.compress2.yaml',
-        'qc.compress3.yaml',
-        'qc.c.setint.yaml',
         #'qc.csrrwri.yaml',
         #'qc.csrrwr.yaml',
-        'qc.cto.yaml',
-        'qc.e.addai.yaml',
-        'qc.e.addi.yaml',
-        'qc.e.andai.yaml',
-        'qc.e.andi.yaml',
-        'qc.e.beqi.yaml',
-        'qc.e.bgei.yaml',
-        'qc.e.bgeui.yaml',
-        'qc.e.blti.yaml',
-        'qc.e.bltui.yaml',
-        'qc.e.bnei.yaml',
-        'qc.e.jal.yaml',
-        'qc.e.j.yaml',
-        'qc.e.lbu.yaml',
-        'qc.e.lb.yaml',
-        'qc.e.lhu.yaml',
-        'qc.e.lh.yaml',
-        'qc.e.li.yaml',
-        'qc.e.lw.yaml',
-        'qc.e.orai.yaml',
-        'qc.e.ori.yaml',
-        'qc.e.sb.yaml',
-        'qc.e.sh.yaml',
-        'qc.e.sw.yaml',
-        'qc.e.xorai.yaml',
-        'qc.e.xori.yaml',
-        'qc.expand2.yaml',
-        'qc.expand3.yaml',
-
-        'qc.extdprh.yaml',
-        'qc.extdpr.yaml',
-        'qc.extdr.yaml',
-        'qc.extduprh.yaml',
-        'qc.extdupr.yaml',
-        'qc.extdur.yaml',
-        'qc.extdu.yaml',
-        'qc.extd.yaml',
-
-        'qc.extu.yaml',
-        'qc.ext.yaml',
-
-        'qc.insbhr.yaml',
-        'qc.insbh.yaml',
-        'qc.insbi.yaml',
-        'qc.insbprh.yaml',
-        'qc.insbpr.yaml',
-        'qc.insbri.yaml',
-        'qc.insbr.yaml',
-
-        'qc.insb.yaml',
-        'qc.lieqi.yaml',
-        'qc.lieq.yaml',
-        'qc.ligei.yaml',
-        'qc.ligeui.yaml',
-        'qc.ligeu.yaml',
-        'qc.lige.yaml',
-        'qc.lilti.yaml',
-        'qc.liltui.yaml',
-        'qc.liltu.yaml',
-        'qc.lilt.yaml',
-        'qc.linei.yaml',
-        'qc.line.yaml',
-        'qc.li.yaml',
-        'qc.lrbu.yaml',
-        'qc.lrb.yaml',
-        'qc.lrhu.yaml',
-        'qc.lrh.yaml',
-        'qc.lrw.yaml',
-
-        'qc.muladdi.yaml',
-        'qc.mveqi.yaml',
-        'qc.mveq.yaml',
-        'qc.mvgei.yaml',
-        'qc.mvgeui.yaml',
-        'qc.mvgeu.yaml',
-        'qc.mvge.yaml',
-        'qc.mvlti.yaml',
-        'qc.mvltui.yaml',
-        'qc.mvltu.yaml',
-        'qc.mvlt.yaml',
-        'qc.mvnei.yaml',
-        'qc.mvne.yaml',
-        'qc.normeu.yaml',
-        'qc.normu.yaml',
-        'qc.norm.yaml',
-        'qc.selecteqi.yaml',
-        'qc.selectieqi.yaml',
-        'qc.selectieq.yaml',
-        'qc.selectiieq.yaml',
-        'qc.selectiine.yaml',
-        'qc.selectinei.yaml',
-        'qc.selectine.yaml',
-        'qc.selectnei.yaml',
-        'qc.setinti.yaml',
-        'qc.shladd.yaml',
-        #'qc.shlsat.yaml',
-        #'qc.shlusat.yaml',
-        'qc.srb.yaml',
-        'qc.srh.yaml',
-        'qc.srw.yaml',
-        'qc.subsat.yaml',
-        'qc.subusat.yaml',
-        'qc.wrapi.yaml',
-        'qc.wrap.yaml'
+        #'qc.c.delay.yaml',
+        #'qc.c.mnret.yaml',
+        #'qc.c.mret.yaml',
+        #'qc.c.ptrace.yaml',
+        #'qc.pcoredump.yaml',
+        #'qc.pexit.yaml',
+        #'qc.ppreg.yaml',
+        #'qc.ppregs.yaml',
+        #'qc.pputc.yaml',
+        #'qc.pputci.yaml',
+        #'qc.pputs.yaml',
+        #'qc.psyscall.yaml',
+        #'qc.psyscalli.yaml',
+        'qc.c.sync.yaml',
+        'qc.c.syncr.yaml',
+        'qc.c.syncwf.yaml',
+        'qc.c.syncwl.yaml',
+        'qc.sync.yaml',
+        'qc.syncr.yaml',
+        'qc.syncwf.yaml',
+        'qc.syncwl.yaml',
+        'qc.csrrwr.yaml',
+        'qc.csrrwri.yaml',
+        'qc.inw.yaml',
+        'qc.outw.yaml',
     }
 
 def round_to_power_of_two(x):
@@ -800,21 +699,17 @@ def emit_switch(f, y, count, defaults, depth):
 
         write_line(f, indent, '}')
 
-def get_csrs(base_csr_dir, xqci_csr_dir):
+
+def get_csrs(exts):
     csrs = {}
-    if base_csr_dir:
-        for file in sorted(os.listdir(base_csr_dir)):
+    for dir in exts.split(','):
+        for file in sorted(os.listdir(dir)):
             if not file.endswith('.yaml'):
                 continue
-            y = common.load_yaml_or_exit(os.path.join(base_csr_dir, file))
-            csrs[y['name']] = y
-    if xqci_csr_dir:
-        for file in sorted(os.listdir(xqci_csr_dir)):
-            if not file.endswith('.yaml'):
-                continue
-            y = common.load_yaml_or_exit(os.path.join(xqci_csr_dir, file))
+            y = common.load_yaml_or_exit(os.path.join(dir, file))
             csrs[y['name']] = y
     return csrs
+
 
 def out_csr(out, csrs):
     for csr in csrs:
@@ -843,6 +738,7 @@ def out_csr(out, csrs):
                     mask |= ((1 << len) - 1) << start
                 out.write(f"#define {csr_name.upper()}_{field} {hex(mask)}\n")
 
+
 def main():
     parser = argparse.ArgumentParser(
         prog='yaml-to-cpp',
@@ -855,9 +751,10 @@ def main():
     parser.add_argument('--output-trans')
     parser.add_argument('--output-klee')
     parser.add_argument('--output-disas')
+    parser.add_argument('--disas-name')
+    parser.add_argument('--disas-sizes')
     parser.add_argument('--input-enabled')
-    parser.add_argument('--xqci-csr-dir')
-    parser.add_argument('--base-csr-dir')
+    parser.add_argument('--csrs')
     args = parser.parse_args()
 
     if args.output_trans:
@@ -1128,7 +1025,7 @@ def main():
                             out.write(f)
                             out.write('\n')
 
-        if args.output_disas:
+        if args.output_disas and args.disas_name and args.disas_sizes:
             instructions = {}
             for file in sorted(os.listdir(args.file)):
                 if not should_translate(file) and not should_decode_only(file):
@@ -1187,14 +1084,18 @@ def main():
                             'rs1' : '1',
                             'rs2' : '2',
                             'rs3' : '6',
+                            'r1s' : '1',
+                            'r2s' : '2',
                             'uimm' : 'k',
                             'shamt' : 'k',
                             'shamt' : 'k',
+                            'rlist' : 'k',
                             'width_minus1' : 'i',
                             'imm' : 'i',
                             'simm' : 'i',
                             'simm1' : 'i',
                             'simm2' : 'i',
+                            'spimm' : 'i',
                             'length' : 'i',
                             'offset' : 'Z',
                         }
@@ -1213,35 +1114,37 @@ def main():
 
                 out.write("\n")
 
-                out.write('static uint64_t decode_xqci_48_impl_load_bytes(rv_decode *dec, uint64_t insn, int offset, int length)\n')
-                out.write('{\n')
-                out.write('    return 0;\n')
-                out.write('}\n')
+                sizes = [int(s) for s in args.disas_sizes.split(',')]
 
-                out.write('#include "riscv-xqci-16-decode.c.inc"\n')
-                out.write('#include "riscv-xqci-32-decode.c.inc"\n')
-                out.write('#pragma GCC diagnostic push\n')
-                out.write('#pragma GCC diagnostic ignored "-Wunused-function"\n')
-                out.write('#include "riscv-xqci-48-decode.c.inc"\n')
-                out.write('#pragma GCC diagnostic pop\n')
-                out.write('#include "riscv-xqci-trans.c.inc"\n')
+                for s in sizes:
+                    if s == 16 or s == 32 or s == 48:
+                        continue
+                    out.write(f'static uint64_t decode_{args.disas_name}_{s}_impl_load_bytes(rv_decode *dec, uint64_t insn, int offset, int length)\n')
+                    out.write('{\n')
+                    out.write('    return 0;\n')
+                    out.write('}\n')
+
+                for s in sizes:
+                    non_standard_size = (s != 16 and s != 32 and s != 48)
+                    if non_standard_size:
+                        out.write('#pragma GCC diagnostic push\n')
+                        out.write('#pragma GCC diagnostic ignored "-Wunused-function"\n')
+                    out.write(f'#include "riscv-{args.disas_name}-{s}-decode.c.inc"\n')
+                    if non_standard_size:
+                        out.write('#pragma GCC diagnostic pop\n')
+                    out.write(f'#include "riscv-{args.disas_name}-trans.c.inc"\n')
                 out.write('\n');
 
-                out.write("void decode_xqci(rv_decode *dec, rv_isa isa) {\n")
-                out.write("    rv_inst inst = dec->inst;\n")
-                out.write("    dec->op = rv_op_illegal;\n")
-                out.write("    switch (dec->inst_length) {\n")
-                out.write("    case 2:\n")
-                out.write("        decode_xqci_16_impl(dec, inst);\n")
-                out.write("        break;\n")
-                out.write("    case 4:\n")
-                out.write("        decode_xqci_32_impl(dec, inst);\n")
-                out.write("        break;\n")
-                out.write("    case 6:\n")
-                out.write("        decode_xqci_48_impl(dec, inst << 16);\n")
-                out.write("        break;\n")
-                out.write("    }\n")
-                out.write("}\n")
+                out.write(f'void decode_{args.disas_name}(rv_decode *dec, rv_isa isa) {{\n')
+                out.write('    rv_inst inst = dec->inst;\n')
+                out.write('    dec->op = rv_op_illegal;\n')
+                out.write('    switch (dec->inst_length) {\n')
+                for s in sizes:
+                    out.write(f'    case {int(s/8)}:\n')
+                    out.write(f'        decode_{args.disas_name}_{s}_impl(dec, inst);\n')
+                    out.write('        break;\n')
+                out.write('    }\n')
+                out.write('}\n')
 
             with open(f'{args.output_disas}-trans.c.inc', 'w') as out:
                 for inst in instructions:
@@ -1276,12 +1179,16 @@ def main():
 
                         for v in y['encoding']['variables']:
                             remap_fields = {
+                                'rlist' : 'uimm',
                                 'shamt' : 'uimm',
                                 'width_minus1' : 'imm',
+                                'r1s' : 'rs1',
+                                'r2s' : 'rs2',
                                 'simm' : 'imm',
                                 'simm1' : 'imm',
                                 'simm2' : 'imm',
                                 'length' : 'imm',
+                                'spimm' : 'imm',
                             }
                             field = remap_fields[v['name']] if v['name'] in remap_fields else v['name']
                             if not common.var_is_imm(y['operation()'], name) and common.inst_is_compressed(y):
@@ -1299,7 +1206,7 @@ def main():
 
     if args.out:
 
-        csrs = get_csrs(args.base_csr_dir, args.xqci_csr_dir)
+        csrs = get_csrs(args.csrs)
 
         with open(args.out, 'w') as out:
             out.write(str_includes)
@@ -1349,7 +1256,7 @@ def main():
 
     if args.output_klee:
 
-        csrs = get_csrs(args.base_csr_dir, args.xqci_csr_dir)
+        csrs = get_csrs(args.csrs)
 
         for file in sorted(os.listdir(args.file)):
             if not should_translate(file) and file not in manual_impls:

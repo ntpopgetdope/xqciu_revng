@@ -1,11 +1,15 @@
 #!/bin/sh
 
 inst_dir=$1
+klee_dir=$2
 
-klee_io=build/klee/io
-klee_tests=build/klee/tests
+klee_io=${klee_dir}/io
+klee_tests=${klee_dir}/tests
 
-for file in build/klee/*.cpp; do
+
+[ ! -d ${klee_tests} ] && mkdir ${klee_tests}
+
+for file in ${klee_dir}/*.cpp; do
     no_ext=${file%.*}
     basename=${no_ext##*/}
 
