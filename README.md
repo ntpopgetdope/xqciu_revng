@@ -31,16 +31,15 @@ where the custom passes performs:
 * `PrepareForOpt` - Early culling of unneeded functions, mapping of function annotations, removal of `noinline` added by `-O0`
 * `PrepareForTcg` - Post-optimization pass; gets IR as close to Tinycode as possible, goal of taking complexity away from backend
 * `TcgGenPass` - Backend pass that allocates TCG variables to LLVM values, and emits final TCG C code
-<br/>
 
 ## References
 **rev.ng**
-- [KVM Forum '23 - Automatic Promotion of Helper Functions to TCG using LLVM](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/revng/anjo-ale-kvm-23_auto-helper2tcg-promotion-llvm-qemu.pdf)
-- [September '24 - RISC-V & Hexagon Qualcomm Presentation (helper-to-tcg)](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/revng/ale-qcom-hexagon-idef-riscv-helper2tcg-presentation.pdf)
-- [KVM Forum '25 - Automatic Frontend Generation for RISC V Extensions](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/revng/anjo-kvm-25_automatic-frontend-generation-xqci-exts.pdf)
+- [KVM Forum '23 - Automatic Promotion of Helper Functions to TCG using LLVM](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/revng/anjo-ale-kvm-23_auto-helper2tcg-promotion-llvm-qemu.pdf)
+- [September '24 - RISC-V & Hexagon Qualcomm Presentation (helper-to-tcg)](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/revng/ale-qcom-hexagon-idef-riscv-helper2tcg-presentation.pdf)
+- [KVM Forum '25 - Automatic Frontend Generation for RISC V Extensions](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/revng/anjo-kvm-25_automatic-frontend-generation-xqci-exts.pdf)
 
 **qcom**
-- [RISC-V UnifiedDB SIG - Introduction to riscv-unified-db (UDB)](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/qcom/dhower_riscv-unified-db.pdf)
-- [FOSDEM '25 - RISC-V udb Streamlining the Ecosystem](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/qcom/afonso-fosdem25_riscv-unified-db.pdf)
-- [Qualcomm uC RISC-V Extensions (qc_iu)](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/qcom/xqci_extension-0.13.0.pdf)
-- [Qualcomm RISC-V ELF psABI Extensions](https://github.com/ntpopgetdope/xqciu_revng/blob/main/docs/qcom/riscv-elf-psabi-quic-extensions-v0.2.pdf)
+- [RISC-V UnifiedDB SIG - Introduction to riscv-unified-db (UDB)](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/qcom/dhower_riscv-unified-db.pdf)
+- [FOSDEM '25 - RISC-V udb Streamlining the Ecosystem](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/qcom/afonso-fosdem25_riscv-unified-db.pdf)
+- [Qualcomm uC RISC-V Extensions (qc_iu)](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/qcom/xqci_extension-0.13.0.pdf)
+- [Qualcomm RISC-V ELF psABI Extensions](https://github.com/ntpopgetdope/xqciu_revng/blob/devel/docs/qcom/riscv-elf-psabi-quic-extensions-v0.2.pdf)
